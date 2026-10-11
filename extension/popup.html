@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <button id="pin" class="pin" title="Pencereyi ayır: başka yere tıklasan da kapanmaz">📌 Açık tut</button>
+  <div id="video" class="video hidden">
+    <img id="thumb" alt="">
+    <div class="meta">
+      <div id="title" class="title"></div>
+      <div id="sub" class="sub"></div>
+    </div>
+  </div>
+
+  <div id="msg" class="msg">Video bilgisi alınıyor…</div>
+
+  <div id="options" class="hidden">
+    <div class="label">Video (MP4)</div>
+    <div id="qualities" class="grid"></div>
+    <div class="label">Sadece ses</div>
+    <button id="mp3" class="btn mp3">MP3 olarak indir</button>
+  </div>
+
+  <div id="sourcesBox" class="hidden">
+    <div class="label">Sayfada bulunan kaynaklar</div>
+    <div id="sources" class="sources"></div>
+  </div>
+
+  <details id="more" class="more">
+    <summary>Video bulunamadı mı? Diğer yöntemler</summary>
+    <div class="label">Video adresini kendin yapıştır</div>
+    <div class="manual-row">
+      <input id="manualUrl" type="url" placeholder="https://… (.m3u8, .mp4 veya video sayfası)">
+      <button id="manualGo" class="btn">Bul</button>
+    </div>
+    <button id="rescan" class="link">Videoyu oynat, sonra yeniden tara</button>
+    <div class="label">Son çare</div>
+    <button id="record" class="btn mp3">Oynatırken kaydet (WebM)</button>
+    <div class="hint">Sayfa videoyu gizli/parçalı yüklüyorsa bile çalışır; video baştan sona gerçek zamanlı oynatılır, sekme açık kalmalı. DRM'li içerikte siyah çıkar.</div>
+    <div class="hint">İpucu: videoya veya bağlantıya sağ tık → “VideoIndir ile indir”. Kısayol: Alt+Shift+D.</div>
+  </details>
+
+  <div id="jobs" class="jobs"></div>
+  <script src="common.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

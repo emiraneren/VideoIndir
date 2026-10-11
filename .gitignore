@@ -1,0 +1,22 @@
+# Derleme / paket çıktıları
+dist/
+VideoIndir.exe
+VideoIndir-firefox.xpi
+extension-firefox/
+launcher/VideoIndir.ico
+
+# Çalışma sırasında oluşanlar (indirilen programlar, geçici dosyalar, tarayıcı profilleri, çerezler)
+helper/bin/
+helper/work*/
+helper/sniff-profile/
+helper/app-profile/
+helper/cookies.txt
+
+# Eski başlatıcılar (artık VideoIndir.exe var)
+/Kur.bat
+/Baslat.bat
+/Site.bat
+/Masaustune-Guncelle.bat
+/Firefox-Hazirla.bat
+/Internete-Ac.bat
+helper/gizli-baslat.vbs

@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VideoIndir</title>
+  <meta name="description" content="Video bağlantısını yapıştır, kalite ya da MP3 seç, indir.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23e11d48'/%3E%3Cpath d='M16 7v12m0 0l-5-5m5 5l5-5M9 24h14' stroke='white' stroke-width='2.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main>
+    <header>
+      <h1>VideoIndir</h1>
+      <p>Bağlantıyı yapıştır, kaliteyi ya da MP3'ü seç, indir.</p>
+    </header>
+
+    <form id="form" autocomplete="off">
+      <label class="sr" for="url">Video bağlantısı</label>
+      <input id="url" name="url" type="url" inputmode="url" placeholder="https://…  (YouTube, Instagram, Facebook, TikTok, X…)" required autofocus spellcheck="false">
+      <button id="paste" type="button" class="ghost">Yapıştır</button>
+      <button id="go" type="submit" class="primary">Çöz</button>
+    </form>
+
+    <div id="status" class="status" role="status" aria-live="polite"></div>
+    <button id="sniffBtn" type="button" class="link">Çözülmüyor mu? Sayfayı açıp videoyu bul</button>
+
+    <section id="sniff" class="card" hidden>
+      <h3>Sayfadan yakalanan kaynaklar</h3>
+      <p id="sniffText" class="hint-text"></p>
+      <div id="sniffList" class="sources"></div>
+      <button id="sniffStop" type="button" class="ghost small">Pencereyi kapat</button>
+    </section>
+
+    <section id="result" class="card" hidden>
+      <div class="head">
+        <img id="thumb" alt="" referrerpolicy="no-referrer">
+        <div class="meta">
+          <h2 id="title"></h2>
+          <p id="sub"></p>
+        </div>
+      </div>
+      <h3>Video <span class="hint">(MP4)</span></h3>
+      <div id="qualities" class="grid"></div>
+      <h3>Sadece ses</h3>
+      <div id="audio" class="grid"></div>
+    </section>
+
+    <section id="jobs" aria-label="İndirmeler"></section>
+
+    <footer>
+      <p>yt-dlp'nin desteklediği 1000'den fazla siteyle çalışır. Yalnızca indirme hakkına sahip olduğun içerikleri indir.</p>
+    </footer>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>
