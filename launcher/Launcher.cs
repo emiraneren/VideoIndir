@@ -51,6 +51,7 @@ namespace VideoIndir
         [DllImport("user32.dll")] static extern bool UnregisterHotKey(IntPtr hWnd, int id);
         [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
         [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
+        [DllImport("user32.dll")] static extern short GetAsyncKeyState(int vKey);
 
         // Gizli pencere: yalnızca WM_HOTKEY mesajını dinler
         class HotKeyWindow : NativeWindow
@@ -69,6 +70,13 @@ namespace VideoIndir
         {
             bool selfTest = args.Length > 0 && args[0] == "--selftest";
             bool silent = Array.IndexOf(args, "--silent") >= 0;   // Windows açılışında pencere açmadan başla
+            // Hata ayıklama: Ctrl+Alt+D'nin yaptığı işi 3 sn sonra yapar (o sırada öndeki tarayıcının adresini bir dosyaya yazar)
+            if (args.Length > 1 && args[0] == "--hotkeytest")
+            {
+                Thread.Sleep(3000);
+                File.WriteAllText(args[1], FindBrowserUrl(true) ?? "(bulunamadi)", Encoding.UTF8);
+                return 0;
+            }
             // Hata ayıklama: açık tarayıcının adresini bir dosyaya yaz ("--geturl dosya.txt")
             // Üçüncü argüman (isteğe bağlı) yalnızca o süreç kimliğindeki tarayıcı penceresine bakar
             if (args.Length > 1 && args[0] == "--geturl")
@@ -513,7 +521,8 @@ namespace VideoIndir
                     string name = Process.GetProcessById((int)pid).ProcessName.ToLowerInvariant();
                     if (Array.IndexOf(BrowserProcesses, name) >= 0)
                     {
-                        string u = ReadAddressBar(fg);
+                        // Önce kopyalama yöntemi (gerçek adres), olmazsa adres çubuğunun metnini oku
+                        string u = UrlViaCopy(fg) ?? ReadAddressBar(fg);
                         if (u != null) return u;
                     }
                 }
@@ -532,6 +541,40 @@ namespace VideoIndir
             }
             catch { }
             return null;
+        }
+
+        // Tarayıcının GERÇEK adresini kopyalama kısayoluyla alır: adres çubuğuna odaklan (Ctrl+L), kopyala (Ctrl+C), Esc ile sayfaya dön.
+        // Opera/Chrome gibi tarayıcılar adres çubuğunda "?v=..." kısmını gizler; çubuktan okunan metin eksik olur, kopyalanan ise tam adrestir.
+        // Pano önceki metnine geri yüklenir; metin dışı veri (resim, dosya) varsa panoya dokunulmaz.
+        static string UrlViaCopy(IntPtr fg)
+        {
+            try
+            {
+                // Kısayolun tuşları (Ctrl+Alt+D) hâlâ basılıysa gönderilen tuşlarla karışır: bırakılmasını bekle
+                for (int i = 0; i < 30 && (GetAsyncKeyState(0x11) < 0 || GetAsyncKeyState(0x12) < 0 || GetAsyncKeyState(0x10) < 0); i++) Thread.Sleep(50);
+
+                bool hadText = Clipboard.ContainsText();
+                if (!hadText && (Clipboard.ContainsImage() || Clipboard.ContainsFileDropList() || Clipboard.ContainsAudio())) return null;
+                string old = hadText ? Clipboard.GetText() : null;
+
+                string sentinel = "videoindir-" + Guid.NewGuid().ToString("N");   // kopyalamanın gerçekten çalıştığını anlamak için
+                Clipboard.SetText(sentinel);
+
+                SendKeys.SendWait("^l");
+                Thread.Sleep(150);
+                SendKeys.SendWait("^c");
+                Thread.Sleep(200);
+                SendKeys.SendWait("{ESC}");
+                Thread.Sleep(80);
+                SendKeys.SendWait("{ESC}");   // ikinci Esc odağı sayfaya geri verir
+
+                string got = Clipboard.ContainsText() ? Clipboard.GetText().Trim() : null;
+                if (old != null) Clipboard.SetText(old); else Clipboard.Clear();
+
+                if (string.IsNullOrEmpty(got) || got == sentinel) return null;
+                return NormalizeUrl(got);
+            }
+            catch { return null; }
         }
 
         static string ReadAddressBar(IntPtr hwnd)
