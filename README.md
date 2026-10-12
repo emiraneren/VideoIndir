@@ -20,7 +20,7 @@ Ayrıca bir şey kurman gerekmez. Sağ alttaki tepsi simgesi uygulamanın çalı
 
 Dosyalar `İndirilenler\VideoIndir` klasörüne kaydedilir.
 
-**Güncelleme:** Yeni sürümün zip'ini eskisinin üzerine çıkar (önce tepsiden **Çıkış** yap). İlk açılışta indirilen `yt-dlp`/`ffmpeg` korunur.
+**Güncelleme:** Önce tepsiden **Çıkış** yap. Releases'teki küçük **`VideoIndir-yama-...zip`** dosyasını (birkaç KB) VideoIndir klasörüne çıkar, "dosyaları değiştir" de. (Tam zip'i çıkarmak da olur.) İlk açılışta indirilen `yt-dlp`/`ffmpeg` korunur.
 
 ## Tarayıcı eklentisi (isteğe bağlı)
 
