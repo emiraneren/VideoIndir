@@ -452,7 +452,12 @@ namespace VideoIndir
                 catch (Exception ex) { File.WriteAllText(outFile, "HATA: " + ex.Message, Encoding.UTF8); }
                 w.Close();
             };
-            w.FormClosed += delegate { Application.ExitThread(); };
+            w.FormClosed += delegate
+            {
+                // Sonuç yazılmadan kapandıysa nedeni (WebView2 başlatma hatası) dosyaya yaz
+                if (code != 0 && !File.Exists(outFile)) File.WriteAllText(outFile, "PENCERE KAPANDI. InitError=" + w.InitError, Encoding.UTF8);
+                Application.ExitThread();
+            };
             System.Windows.Forms.Timer guard = new System.Windows.Forms.Timer();
             guard.Interval = 40000;
             guard.Tick += delegate
