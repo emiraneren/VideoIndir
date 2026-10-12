@@ -74,6 +74,17 @@ function findBrowser() {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// Bu profil klasörünü kullanan artık tarayıcı süreçlerini sonlandırır (yalnızca bizim izole sniff-profile-* klasörümüz; kullanıcının asıl tarayıcısına dokunmaz)
+function killStale(dir) {
+  try {
+    const suffix = path.basename(dir).replace(/^sniff-profile-/, '');
+    // Aranan ifade betikte parçalı yazılı: PowerShell kendi komut satırıyla eşleşip kendini kapatmasın
+    const ps = `$n = 'sniff-profile-' + '${suffix}'; Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -like ('*' + $n + '*') } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`;
+    execFileSync('powershell', ['-NoProfile', '-Command', ps], { windowsHide: true, stdio: 'ignore', timeout: 20000 });
+  } catch {}
+  try { fs.rmSync(path.join(dir, 'lockfile'), { force: true }); } catch {}
+}
+
 // Çok küçük bir CDP istemcisi (Node'un yerleşik WebSocket'i ile)
 class Cdp {
   constructor(ws, onEvent) {
@@ -119,6 +130,8 @@ class Sniffer {
     if (!exe) throw Object.assign(new Error('no browser'), { friendly: 'Edge veya Chrome bulunamadı.' });
     const PROFILE_DIR = profileDirFor(exe);
     fs.mkdirSync(PROFILE_DIR, { recursive: true });
+    // Önceki bir pencere zorla kapatıldıysa profilde kilit ve artık süreçler kalabilir; yeni pencere bu yüzden hiç açılmaz. Önce temizle.
+    if (fs.existsSync(path.join(PROFILE_DIR, 'lockfile'))) killStale(PROFILE_DIR);
     const portFile = path.join(PROFILE_DIR, 'DevToolsActivePort');
     fs.rmSync(portFile, { force: true });
 
@@ -246,8 +259,18 @@ class Sniffer {
       this.lastCookies = text;
       this.cookieCount = lines.length;
       this.cookieVersion++;
+      if (!lines.length) return; // boş profil önceki oturumun kayıtlı girişlerini silmesin
+      // Birikimli kayıt: önceki oturumlardaki çerezler korunur, aynı çerez yenisiyle değişir.
+      // Böylece pencere yeni/boş bir profille açılsa bile daha önce yapılan giriş kaybolmaz.
+      const keyOf = (l) => l.split('\t').slice(0, 3).join('\t') + '\t' + l.split('\t')[5]; // alan, yol, ad
+      const merged = new Map();
+      try {
+        fs.readFileSync(COOKIE_FILE, 'utf8').split(/\r?\n/).filter((l) => l && !/^# Netscape/.test(l) && l.split('\t').length >= 7)
+          .forEach((l) => merged.set(keyOf(l), l));
+      } catch {}
+      lines.forEach((l) => merged.set(keyOf(l), l));
       const tmp = COOKIE_FILE + '.tmp';
-      fs.writeFileSync(tmp, lines.length ? '# Netscape HTTP Cookie File\n' + text + '\n' : '', { mode: 0o600 });
+      fs.writeFileSync(tmp, '# Netscape HTTP Cookie File\n' + [...merged.values()].join('\n') + '\n', { mode: 0o600 });
       fs.renameSync(tmp, COOKIE_FILE);
     } catch {}
   }
@@ -293,11 +316,18 @@ class Sniffer {
     this.status = 'closed';
     clearInterval(this.timer);
     clearInterval(this.cookieTimer);
-    try { this.cdp && this.cdp.ws.close(); } catch {}
-    if (this.proc && this.proc.exitCode === null) {
-      // pencereyi (ve alt süreçlerini) kapat; profil klasörü kalır
-      spawn('taskkill', ['/PID', String(this.proc.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
-    }
+    const proc = this.proc;
+    const force = () => {
+      // 4 sn içinde kendiliğinden kapanmadıysa pencereyi (ve alt süreçlerini) zorla sonlandır; profil klasörü kalır
+      if (proc && proc.exitCode === null) spawn('taskkill', ['/PID', String(proc.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
+    };
+    if (this.cdp && proc && proc.exitCode === null) {
+      // Önce tarayıcıyı nazikçe kapat: çerezler ve oturum diske yazılır, giriş bir sonraki açılışta hatırlanır.
+      // (Zorla sonlandırmak yazılmamış çerezleri kaybettirir.)
+      this.cdp.send('Browser.close').catch(() => {});
+      const t = setTimeout(force, 4000);
+      if (t.unref) t.unref();
+    } else force();
   }
 }
 

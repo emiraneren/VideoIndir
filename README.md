@@ -41,6 +41,7 @@ Gizli pencerede kullanmak için eklentinin ayrıntılarında **Gizli modda izin 
 |---|---|
 | Eklenti "Yardımcı program çalışmıyor" diyor | `VideoIndir.exe` kapalı. Aç. |
 | Facebook / Instagram'da "Video çözülemedi" | Video giriş istiyor olabilir. **"Çözülmüyor mu? Sayfayı açıp videoyu bul"**'a bas, açılan pencerede siteye **bir kez giriş yap**. Uygulama otomatik devam eder ve giriş hatırlanır. |
+| Açılan pencere giriş istiyor | Bu pencere ayrı bir profil kullanır; normal tarayıcındaki giriş orada görünmez (tarayıcılar çerezleri başka programlara vermez). **Bir kez** giriş yap, sonra hatırlanır. Hazır oturumunu kullanmak istersen tarayıcı eklentisini kur. |
 | Özel / kaldırılmış video | İndirilemez. |
 | YouTube "bot" diyor | Biraz bekleyip tekrar dene. |
 | Antivirüs uyarı verdi | Uygulama imzasız; klasörü antivirüste güvenli listeye ekle. |
