@@ -203,6 +203,63 @@ function recordVideo(name) {
   return { ok: true };
 }
 
+// Sayfada çalışır (enjekte edilir, kendi içinde bağımsız): verilen kaynağa karşılık gelen videonun/oynatıcının üstüne parlayan bir çerçeve çizer.
+// url null ise çerçeveyi kaldırır. Eşleşme sırası: adresi birebir tutan <video> · eşleşen iframe · sayfada oynayan/en büyük görünen video
+// (ağdan yakalanan akışlar çoğu zaman o videoya aittir).
+function highlightInPage(url, kind) {
+  const ID = '__vi_highlight';
+  const old = document.getElementById(ID);
+  if (old) old.remove();
+  clearTimeout(window.__viHlTimer);
+  if (!url) return false;
+
+  const vids = [];
+  (function walk(root) {
+    root.querySelectorAll('*').forEach((el) => { if (el.tagName === 'VIDEO') vids.push(el); if (el.shadowRoot) walk(el.shadowRoot); });
+  })(document);
+  const visible = (el) => {
+    const r = el.getBoundingClientRect();
+    return Math.max(0, Math.min(r.right, innerWidth) - Math.max(r.left, 0)) * Math.max(0, Math.min(r.bottom, innerHeight) - Math.max(r.top, 0));
+  };
+
+  let target = null;
+  if (kind === 'iframe') {
+    target = [...document.querySelectorAll('iframe')].find((f) => {
+      try { return new URL(f.getAttribute('src') || '', location.href).href === url; } catch { return false; }
+    }) || null;
+  }
+  if (!target) target = vids.find((v) => v.currentSrc === url || v.src === url) || null;
+  if (!target && vids.length) {
+    const full = (el) => { const r = el.getBoundingClientRect(); return r.width * r.height; };
+    // oynayan > ekranda görünen alanı büyük > toplam boyutu büyük
+    target = vids.slice().sort((a, b) => (Number(!b.paused) - Number(!a.paused)) || (visible(b) - visible(a)) || (full(b) - full(a)))[0];
+  }
+  if (!target) return false;
+  const r0 = target.getBoundingClientRect();
+  if (!r0.width || !r0.height) return false;
+  if (visible(target) < r0.width * r0.height * 0.5) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+  const box = document.createElement('div');
+  box.id = ID;
+  box.style.cssText = 'position:fixed;z-index:2147483647;pointer-events:none;box-sizing:border-box;border:3px solid #e11d48;border-radius:8px;'
+    + 'box-shadow:0 0 0 4px rgba(225,29,72,.35),0 0 28px 8px rgba(225,29,72,.75),inset 0 0 24px 4px rgba(225,29,72,.35);';
+  const chip = document.createElement('div');
+  chip.textContent = 'VideoIndir: bu kaynak';
+  chip.style.cssText = 'position:absolute;left:6px;top:6px;background:#e11d48;color:#fff;font:600 12px system-ui,sans-serif;padding:3px 8px;border-radius:6px;';
+  box.appendChild(chip);
+  document.documentElement.appendChild(box);
+
+  const place = () => { // kaydırma/yeniden boyutlandırmada çerçeve videoyu izlesin
+    if (!box.isConnected) return;
+    const r = target.getBoundingClientRect();
+    box.style.left = r.left + 'px'; box.style.top = r.top + 'px'; box.style.width = r.width + 'px'; box.style.height = r.height + 'px';
+    requestAnimationFrame(place);
+  };
+  place();
+  window.__viHlTimer = setTimeout(() => box.remove(), 6000); // popup kapanırsa çerçeve kalıcı kalmasın
+  return true;
+}
+
 // ================= Kaynak bulma =================
 
 const MANIFEST_RE = /\.(m3u8|mpd)(\?|#|$)/i;
@@ -220,7 +277,7 @@ async function findCandidates() {
   try {
     const s = await chrome.storage.session.get([k, 'm' + tab.id]);
     mseFlag = !!s['m' + tab.id];
-    (s[k] || []).forEach((x) => list.push({ url: x.url, kind: x.src, ref: x.ref }));
+    (s[k] || []).forEach((x) => list.push({ url: x.url, kind: x.src, ref: x.ref, size: x.size, mime: x.type }));
   } catch {}
 
   // injectImmediately: hâlâ yüklenen bir iframe taramayı sonsuza dek bekletmesin. Yine de 6 sn sınır var.
@@ -252,32 +309,64 @@ function refererFor(c) {
   return tab.url;
 }
 
-const KIND_LABEL = { net: 'akış', hook: 'api', perf: 'akış', video: 'video', iframe: 'oynatıcı', link: 'bağlantı', html: 'sayfa' };
 const SOURCE_LIMIT = 8; // Facebook gibi sitelerde yüzlerce adres olabilir; varsayılan olarak en olası 8'i göster
 let showAllSources = false;
+
+// Listede ham adres yerine "bu ne?" sorusunu cevaplayan bir ad göster: tür + (biliniyorsa) süre/kalite/boyut
+function describeSource(c) {
+  const m = (c.mime || '').toLowerCase();
+  let type = { net: 'Akış', perf: 'Akış', hook: 'Sayfa verisi', video: 'Sayfadaki video', iframe: 'Oynatıcı', link: 'Bağlantı', html: 'Sayfa içi adres' }[c.kind] || 'Kaynak';
+  if (MANIFEST_RE.test(c.url) || /mpegurl|dash/.test(m)) type = 'Yayın akışı';
+  else if (m.startsWith('audio/')) type = 'Ses dosyası';
+  else if (m.startsWith('video/')) type = 'Video dosyası';
+
+  const parts = [];
+  if (c.info) {
+    const h = c.info.heights && c.info.heights[0];
+    type = h ? 'Video' : (c.info.duration ? 'Sadece ses' : type);
+    if (c.info.duration) parts.push(fmtDuration(c.info.duration));
+    if (h) parts.push(h + 'p');
+  }
+  if (c.size) parts.push(fmtBytes(c.size));
+  if (!parts.length) {
+    // Hiçbir şey bilinmiyorsa en azından hangi siteden geldiğini (ör. "fbcdn.net") göster
+    try { parts.push(new URL(c.url).hostname.split('.').slice(-2).join('.')); } catch { parts.push('?'); }
+    if (c.pending) parts.push('inceleniyor…');
+  }
+  return { type, detail: parts.join(' · ') };
+}
+
+// Fare kaynağın üzerindeyken sayfadaki ilgili videoyu parlat (null: parlatmayı kaldır)
+function highlight(c) {
+  if (!tab) return;
+  chrome.scripting.executeScript({
+    target: { tabId: tab.id, allFrames: true }, injectImmediately: true,
+    func: highlightInPage, args: [c ? c.url : null, c ? c.kind : null],
+  }).catch(() => {});
+}
+window.addEventListener('pagehide', () => highlight(null));
 
 function renderSources(selectedUrl) {
   const box = $('sources');
   box.textContent = '';
-  let shown = showAllSources ? candidates : candidates.slice(0, SOURCE_LIMIT);
-  const sel = candidates.find((c) => c.url === selectedUrl);
+  // Çözülenler (gerçek video/ses) üstte, denenmemişler ortada, başarısızlar en sonda
+  const order = (c) => (c.info ? 0 : c.failed ? 2 : 1);
+  const ordered = candidates.map((c, i) => ({ c, i })).sort((a, b) => order(a.c) - order(b.c) || a.i - b.i).map((x) => x.c);
+  let shown = showAllSources ? ordered : ordered.slice(0, SOURCE_LIMIT);
+  const sel = ordered.find((c) => c.url === selectedUrl);
   if (sel && !shown.includes(sel)) shown = [sel, ...shown]; // seçili kaynak her zaman görünsün
   shown.forEach((c) => {
     const b = document.createElement('button');
     b.className = 'src' + (c.url === selectedUrl ? ' sel' : '') + (c.failed ? ' bad' : '');
-    let text = c.url;
-    try {
-      const u = new URL(c.url);
-      text = `${u.hostname}/${decodeURIComponent(u.pathname.split('/').filter(Boolean).pop() || '')}`;
-    } catch {}
+    const { type, detail } = describeSource(c);
     const small = document.createElement('small');
-    small.textContent = KIND_LABEL[c.kind] || c.kind;
-    const extra = c.info ? ` ${[fmtDuration(c.info.duration), c.info.heights[0] && c.info.heights[0] + 'p'].filter(Boolean).join(' · ')}` : '';
-    b.append(small, document.createTextNode(text + (extra ? ' —' + extra : '')));
-    b.title = c.err ? `${c.url}
-
-${c.err}` : c.url; // başarısız kaynakta fare üstüne gelince hata görünür
+    small.textContent = type;
+    b.append(small, document.createTextNode(detail));
+    b.title = (c.err ? c.url + '\n\n' + c.err : c.url) + '\n\nÜzerine gelince sayfadaki video parlar.'; // ham adres ipucunda
+    b.addEventListener('mouseenter', () => highlight(c));
+    b.addEventListener('mouseleave', () => highlight(null));
     b.addEventListener('click', async () => {
+      highlight(null);
       showMsg('Kaynak inceleniyor…');
       $('options').classList.add('hidden');
       try { await loadSource({ url: c.url, referer: refererFor(c), title: tab.title }, c.info); renderSources(c.url); }
@@ -285,10 +374,10 @@ ${c.err}` : c.url; // başarısız kaynakta fare üstüne gelince hata görünü
     });
     box.appendChild(b);
   });
-  if (!showAllSources && candidates.length > SOURCE_LIMIT) {
+  if (!showAllSources && ordered.length > SOURCE_LIMIT) {
     const more = document.createElement('button');
     more.className = 'link';
-    more.textContent = `Diğer ${candidates.length - SOURCE_LIMIT} kaynağı göster`;
+    more.textContent = 'Diğer ' + (ordered.length - SOURCE_LIMIT) + ' kaynağı göster';
     more.addEventListener('click', () => { showAllSources = true; renderSources(selectedUrl); });
     box.appendChild(more);
   }
@@ -423,10 +512,14 @@ async function detect() {
   // En olası 6 kaynağı aynı anda dene; reklam gibi kısa videolar yerine en uzun olanı seç
   const tried = candidates.slice(0, 6);
   if (tried.length) showMsg(`${candidates.length} kaynak bulundu, deneniyor…`);
+  tried.forEach((c) => { c.pending = true; });
+  renderSources();
   await Promise.all(tried.map(async (c) => {
     try {
       c.info = await api('/info', { url: c.url, referer: refererFor(c), ...(await requestContext(c.url, tab.url, tab.id)) }, 25000);
     } catch (e) { c.failed = true; c.err = e.message; }
+    c.pending = false;
+    if (!stale() && !source) renderSources(); // her kaynak çözüldükçe adı (süre/kalite) canlı güncellensin
   }));
   if (stale()) return;
   const ok = tried.filter((c) => c.info);

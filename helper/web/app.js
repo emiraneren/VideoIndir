@@ -308,6 +308,9 @@ function renderSniffList(cands, snap) {
   const s = sniff;
   sniffList.textContent = '';
   if (s.probed.has(snap.pageUrl)) cands = [{ url: snap.pageUrl, kind: 'page', page: true }, ...cands.filter((c) => c.url !== snap.pageUrl)];
+  // Çözülenler (gerçek video/ses) üstte, denenmemişler ortada, başarısızlar sonda
+  const stateOrder = (c) => { const e = s.probed.get(c.url); return e && e.state === 'ok' ? 0 : e && e.state === 'bad' ? 2 : 1; };
+  cands = cands.map((c, i) => ({ c, i })).sort((x, y) => stateOrder(x.c) - stateOrder(y.c) || x.i - y.i).map((x) => x.c);
   // Facebook gibi sitelerde yüzlerce adres olabilir: en olası 8'ini göster, gerisi tek tıkla açılır
   const total = cands.length;
   let shown = s.showAll ? cands : cands.slice(0, 8);
@@ -318,13 +321,27 @@ function renderSniffList(cands, snap) {
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'src' + (s.picked === c.url ? ' sel' : '') + (e && e.state === 'bad' ? ' bad' : '');
-    let text = c.url;
-    try { const u = new URL(c.url); text = u.hostname + '/' + decodeURIComponent(u.pathname.split('/').filter(Boolean).pop() || ''); } catch {}
+    // Ham adres yerine "bu ne?" sorusunu cevaplayan ad: tür + (biliniyorsa) süre/kalite/boyut
+    const m = (c.mime || '').toLowerCase();
+    let type = KIND_LABEL[c.kind] || c.kind;
+    if (MANIFEST_RE.test(c.url) || /mpegurl|dash/.test(m)) type = 'Yayın akışı';
+    else if (m.startsWith('audio/')) type = 'Ses dosyası';
+    else if (m.startsWith('video/')) type = 'Video dosyası';
+    const parts = [];
+    if (e && e.state === 'ok') {
+      const h = e.meta.options && e.meta.options[0] && e.meta.options[0].height;
+      type = h ? 'Video' : (e.meta.duration ? 'Sadece ses' : type);
+      if (e.meta.duration) parts.push(fmtDuration(e.meta.duration));
+      if (h) parts.push(h + 'p');
+    }
+    if (!parts.length) {
+      try { parts.push(new URL(c.url).hostname.split('.').slice(-2).join('.')); } catch { parts.push('?'); }
+      if (e && e.state === 'pending') parts.push('inceleniyor…');
+    }
     const tag = document.createElement('small');
-    tag.textContent = KIND_LABEL[c.kind] || c.kind;
-    let extra = '';
-    if (e && e.state === 'pending') extra = ' — inceleniyor…';
-    else if (e && e.state === 'ok') extra = ' — ' + [fmtDuration(e.meta.duration), e.meta.options && e.meta.options[0] && e.meta.options[0].height + 'p'].filter(Boolean).join(' · ');
+    tag.textContent = type;
+    const text = parts.join(' · ');
+    const extra = '';
     b.append(tag, document.createTextNode(text + extra));
     b.title = e && e.state === 'bad' ? c.url + '\n\n' + e.err : c.url; // başarısız kaynakta fare üstüne gelince hata görünür
     b.addEventListener('click', async () => {
