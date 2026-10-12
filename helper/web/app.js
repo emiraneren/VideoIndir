@@ -50,11 +50,13 @@ form.addEventListener('submit', async (e) => {
   setStatus('Bağlantı çözülüyor… birkaç saniye sürebilir.');
   try {
     current = await request('/api/resolve', { url });
+    sniffBtn.classList.remove('attn');
     renderResult(current);
     setStatus('');
   } catch (err) {
     current = null;
     setStatus(err.message, true, err.detail);
+    sniffBtn.classList.add('attn'); // çözülemedi: sayfadan yakalama (ve giriş) yolunu öne çıkar
   } finally { goBtn.disabled = false; }
 });
 
@@ -199,7 +201,7 @@ const sniffBtn = $('sniffBtn'), sniffBox = $('sniff'), sniffText = $('sniffText'
 let sniff = null; // {id, timer, probed: Map(url -> {state, meta, ref, err}), manual: bool, snap}
 
 const MANIFEST_RE = /\.(m3u8|mpd)(\?|#|$)/i;
-const KIND_LABEL = { net: 'akış', hook: 'api', perf: 'akış', video: 'video', iframe: 'oynatıcı', link: 'bağlantı', html: 'sayfa', dom: 'sayfa' };
+const KIND_LABEL = { net: 'akış', hook: 'api', perf: 'akış', video: 'video', iframe: 'oynatıcı', link: 'bağlantı', html: 'sayfa', dom: 'sayfa', page: 'sayfa (giriş)' };
 function rank(c) {
   if (MANIFEST_RE.test(c.url)) return 0;
   if (c.kind === 'net' || c.kind === 'hook' || c.kind === 'perf') return 1;
@@ -250,9 +252,17 @@ async function pollSniff() {
   const cands = snap.candidates.slice().sort((a, b) => rank(a) - rank(b));
   if (snap.status === 'closed') { stopSniffPolling(); sniffText.textContent = 'Pencere kapatıldı. Listeden bir kaynak seçebilirsin.'; }
   else if (!cands.length) sniffText.textContent = Date.now() - s.startedAt > 12000
-    ? 'Henüz akış yakalanmadı. Videoyu oynat (gerekirse reklamı geç).'
+    ? 'Henüz akış yakalanmadı. Site giriş istiyorsa pencerede giriş yap (bir kez yeterli), sonra videoyu oynat.'
     : 'Açılan pencerede videoyu oynat. Bulunan kaynaklar burada görünür.';
   else sniffText.textContent = cands.length + ' kaynak bulundu. En olası olan otomatik seçilir.';
+
+  // Giriş yapılınca (çerezler değişince) sayfa adresini çerezlerle çöz: Facebook reel, Instagram gibi giriş isteyen videolar.
+  // Başarısız olursa yalnızca çerezler değiştiyse ve 8 sn geçtiyse yeniden dener.
+  const pageEntry = s.probed.get(snap.pageUrl);
+  if (snap.cookieVersion > 0 && snap.cookieVersion !== s.cookieSeen && (!pageEntry || (pageEntry.state === 'bad' && Date.now() - pageEntry.at > 8000))) {
+    s.cookieSeen = snap.cookieVersion;
+    probeCandidate({ url: snap.pageUrl, kind: 'page', page: true }, snap);
+  }
 
   // Henüz denenmemiş kaynakları (en fazla 12) çöz
   cands.filter((c) => !s.probed.has(c.url)).slice(0, Math.max(0, 12 - s.probed.size)).forEach((c) => probeCandidate(c, snap));
@@ -261,7 +271,7 @@ async function pollSniff() {
 
 async function probeCandidate(c, snap) {
   const s = sniff;
-  const entry = { state: 'pending', ref: refererFor(c, snap) };
+  const entry = { state: 'pending', ref: c.page ? undefined : refererFor(c, snap), at: Date.now() };
   s.probed.set(c.url, entry);
   try {
     entry.meta = await request('/api/resolve', { url: c.url, referer: entry.ref });
@@ -274,6 +284,8 @@ async function probeCandidate(c, snap) {
 
 // Reklam gibi kısa videolar yerine çözülenler arasında en uzun olanı seç
 function autoPick(s) {
+  const page = s.snap && s.probed.get(s.snap.pageUrl);
+  if (page && page.state === 'ok') return pickSource(s.snap.pageUrl, s, false);
   const ok = [...s.probed].filter(([, e]) => e.state === 'ok');
   if (!ok.length) return;
   ok.sort((a, b) => (b[1].meta.duration || 0) - (a[1].meta.duration || 0));
@@ -286,7 +298,8 @@ function pickSource(url, s, manual) {
   if (manual) s.manual = true;
   s.picked = url;
   // Doğrudan akışlarda yt-dlp'nin başlığı anlamsızdır ("master" gibi); sayfa başlığını kullan
-  current = { ...e.meta, url, referer: e.ref, title: s.snap.title || e.meta.title, fromSniff: true };
+  const isPage = url === s.snap.pageUrl;
+  current = { ...e.meta, url, referer: e.ref, title: isPage ? e.meta.title : (s.snap.title || e.meta.title), fromSniff: !isPage };
   renderResult(current);
   setStatus('');
 }
@@ -294,6 +307,7 @@ function pickSource(url, s, manual) {
 function renderSniffList(cands, snap) {
   const s = sniff;
   sniffList.textContent = '';
+  if (s.probed.has(snap.pageUrl)) cands = [{ url: snap.pageUrl, kind: 'page', page: true }, ...cands.filter((c) => c.url !== snap.pageUrl)];
   cands.forEach((c) => {
     const e = s.probed.get(c.url);
     const b = document.createElement('button');

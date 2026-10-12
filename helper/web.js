@@ -5,7 +5,7 @@ const path = require('path');
 const dns = require('dns').promises;
 const net = require('net');
 
-const { Sniffer } = require('./sniff');
+const { Sniffer, COOKIE_FILE: SNIFF_COOKIES } = require('./sniff');
 
 const WEB_DIR = path.join(__dirname, 'web');
 const COOKIES_TXT = path.join(__dirname, 'cookies.txt'); // isteğe bağlı: Facebook/Instagram gibi giriş isteyen siteler için sunucu tarafı çerezler
@@ -50,7 +50,9 @@ function explain(msg) {
   const rules = [
     [/not a bot|confirm you.re not a robot|sign in to confirm/i, 'Bu site sunucuyu bot sanıp doğrulama istiyor. YouTube bunu sunucu adreslerine sık yapar; çerez eklenmedikçe indirilemeyebilir.'],
     [/private video|members.only|login|log in|sign in|cookies|authenticat|age.?restrict|confirm your age|requires? (a )?(account|subscription)/i, 'Bu video özel ya da giriş gerektiriyor. Sunucuya çerez eklenmedikçe indirilemez.'],
-    [/unsupported url|no video|no suitable|unable to extract/i, 'Bu bağlantıdan video çıkarılamadı. Doğrudan bir video/gönderi sayfasının adresini yapıştır.'],
+    // Facebook/Instagram gibi sitelerde giriş duvarı çoğu zaman "Cannot parse data" olarak görünür
+    [/cannot parse data|empty media response|rate-limit reached|checkpoint|http error 403|forbidden/i,'Bu video giriş gerektiriyor olabilir. "Çözülmüyor mu? Sayfayı açıp videoyu bul"a bas, açılan pencerede siteye bir kez giriş yap; uygulama otomatik devam eder.'],
+    [/unsupported url|no video|no suitable|unable to extract/i,'Bu bağlantıdan video çıkarılamadı. Doğrudan bir video/gönderi sayfasının adresini yapıştır.'],
     [/unavailable|removed|deleted|not available|copyright|geo|country|does not exist|404/i, 'Video mevcut değil, kaldırılmış ya da bu bölgede kullanılamıyor.'],
     [/zaman aşımı|timed? ?out/i, 'Site zamanında cevap vermedi. Biraz sonra tekrar dene.'],
     [/larger than max-filesize|max.filesize/i, 'Dosya izin verilen boyut sınırından büyük. Daha düşük bir kalite seç.'],
@@ -87,8 +89,16 @@ function createWeb({ PUBLIC, WORK_DIR, info, startJob, cancelJob, jobs, ACTIVE, 
     return req.socket.remoteAddress || '?';
   };
 
+  // Çerezler: elle konan cookies.txt + (yalnızca yerel kullanımda) "videoyu bul" penceresinde yapılan girişlerin çerezleri.
+  // Herkese açık modda pencere çerezleri ASLA kullanılmaz: yoksa kendi oturumun tüm ziyaretçilere açılırdı.
   const serverCookies = () => {
-    try { const t = fs.readFileSync(COOKIES_TXT, 'utf8'); return t.length < 1.5e6 ? t : null; } catch { return null; }
+    const read = (f) => { try { const t = fs.readFileSync(f, 'utf8'); return t.length < 1.5e6 ? t : ''; } catch { return ''; } };
+    let text = read(COOKIES_TXT);
+    if (!PUBLIC) {
+      const sniffed = read(SNIFF_COOKIES).replace(/^# Netscape HTTP Cookie File\r?\n/, '');
+      if (sniffed.trim()) text = (text.trim() ? text.replace(/\n?$/, '\n') : '# Netscape HTTP Cookie File\n') + sniffed;
+    }
+    return text.trim() ? text : null;
   };
 
   // Başlangıçta eski geçici dosyaları temizle, sonra düzenli olarak süresi dolanları sil
@@ -188,7 +198,7 @@ function createWeb({ PUBLIC, WORK_DIR, info, startJob, cancelJob, jobs, ACTIVE, 
     if (sm && !PUBLIC) {
       const sn = sniffers.get(sm[1]);
       if (!sn) return send(res, 404, { error: 'Oturum bulunamadı.' }), true;
-      if (sm[2] && req.method === 'POST') { sn.close(); send(res, 200, { ok: true }); return true; }
+      if (sm[2] && req.method === 'POST') { await sn.exportCookies(); sn.close(); send(res, 200, { ok: true }); return true; } // kapatmadan önce son girişi kaydet
       if (!sm[2] && req.method === 'GET') { send(res, 200, sn.snapshot()); return true; }
     }
 

@@ -14,6 +14,8 @@ const SEGMENT_RE = /\.(ts|m4s|cmfv|cmfa|aac)(\?|#|$)|[-_/](seg|segment|chunk|fra
 const SKIP_HOST_RE = /googlevideo\.com$/i;
 const MIN_FILE_BYTES = 300000;
 const MAX_CANDIDATES = 40;
+// Pencerede yapılan girişlerin çerezleri (Facebook, Instagram...) yt-dlp için buraya yazılır. Yalnızca yerel kullanımda okunur.
+const COOKIE_FILE = path.join(__dirname, 'sniff-cookies.txt');
 
 // Sayfada çalıştırılacak tarama kodu: eklentideki fonksiyonların aynısı (tek kaynak, kopya yok)
 function extractFns() {
@@ -80,7 +82,8 @@ class Sniffer {
     this.error = null;
     this.candidates = new Map();
     this.sessions = new Map(); // sessionId -> {type}
-    this.proc = null; this.cdp = null; this.timer = 0; this.mainSession = null; this.mainTarget = null;
+    this.proc = null; this.cdp = null; this.timer = 0; this.cookieTimer = 0; this.mainSession = null; this.mainTarget = null;
+    this.lastCookies = null; this.cookieVersion = 0; this.cookieCount = 0;
     this.createdAt = Date.now();
   }
 
@@ -115,6 +118,8 @@ class Sniffer {
     if (!this.mainSession) { this.close(); throw Object.assign(new Error('no page'), { friendly: 'Tarayıcı sayfası bulunamadı.' }); }
     this.status = 'open';
     this.timer = setInterval(() => this.scanDom(), 3000);
+    this.cookieTimer = setInterval(() => this.exportCookies(), 1500); // pencere hemen kapatılsa bile son giriş kaybolmasın
+    this.exportCookies();
     setTimeout(() => this.tryPlay(), 5000);
   }
 
@@ -192,6 +197,33 @@ class Sniffer {
   }
 
   // Sayfa/iframe içindeki <video>, meta, JSON-LD, oynatıcı verileri (eklentiyle aynı kod)
+  // Tarayıcıdaki çerezleri (giriş oturumları dahil) yt-dlp'nin okuyacağı Netscape biçiminde dosyaya yazar.
+  // Böylece giriş isteyen videolar (Facebook reel, Instagram...) sayfada bir kez giriş yapınca çözülebilir.
+  async exportCookies() {
+    if (!this.cdp || this.status !== 'open') return;
+    try {
+      const r = await this.cdp.send('Storage.getCookies', {});
+      const clean = (s) => String(s).replace(/[\t\r\n]/g, '');
+      const lines = (r.cookies || []).map((c) => [
+        (c.httpOnly ? '#HttpOnly_' : '') + clean(c.domain),
+        c.domain.startsWith('.') ? 'TRUE' : 'FALSE',
+        clean(c.path),
+        c.secure ? 'TRUE' : 'FALSE',
+        c.session || !c.expires || c.expires <= 0 ? 0 : Math.floor(c.expires),
+        clean(c.name),
+        clean(c.value),
+      ].join('\t'));
+      const text = lines.join('\n');
+      if (text === this.lastCookies) return;
+      this.lastCookies = text;
+      this.cookieCount = lines.length;
+      this.cookieVersion++;
+      const tmp = COOKIE_FILE + '.tmp';
+      fs.writeFileSync(tmp, lines.length ? '# Netscape HTTP Cookie File\n' + text + '\n' : '', { mode: 0o600 });
+      fs.renameSync(tmp, COOKIE_FILE);
+    } catch {}
+  }
+
   async scanDom() {
     if (this.status !== 'open') return;
     // Başlığı doğrudan sayfadan oku: tarayıcı başlık değişikliğini hedef olaylarıyla her zaman bildirmez
@@ -223,6 +255,7 @@ class Sniffer {
   snapshot() {
     return {
       id: this.id, status: this.status, title: this.title, pageUrl: this.pageUrl, error: this.error,
+      cookieVersion: this.cookieVersion, cookieCount: this.cookieCount, // çerezler değişince arayüz sayfa adresini yeniden çözer
       candidates: [...this.candidates.values()].map(({ url, kind, ref, mime }) => ({ url, kind, ref, mime })),
     };
   }
@@ -231,6 +264,7 @@ class Sniffer {
     if (this.status === 'closed') return;
     this.status = 'closed';
     clearInterval(this.timer);
+    clearInterval(this.cookieTimer);
     try { this.cdp && this.cdp.ws.close(); } catch {}
     if (this.proc && this.proc.exitCode === null) {
       // pencereyi (ve alt süreçlerini) kapat; profil klasörü kalır
@@ -239,4 +273,4 @@ class Sniffer {
   }
 }
 
-module.exports = { Sniffer, findBrowser };
+module.exports = { Sniffer, findBrowser, COOKIE_FILE };

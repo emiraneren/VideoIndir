@@ -20,6 +20,8 @@ Ayrıca bir şey kurman gerekmez. Sağ alttaki tepsi simgesi uygulamanın çalı
 
 Dosyalar `İndirilenler\VideoIndir` klasörüne kaydedilir.
 
+**Güncelleme:** Yeni sürümün zip'ini eskisinin üzerine çıkar (önce tepsiden **Çıkış** yap). İlk açılışta indirilen `yt-dlp`/`ffmpeg` korunur.
+
 ## Tarayıcı eklentisi (isteğe bağlı)
 
 Eklenti, tarayıcıda videoyu izlerken simgeye tıklayıp indirmeni sağlar. **Exe açıkken** çalışır.
@@ -38,7 +40,8 @@ Gizli pencerede kullanmak için eklentinin ayrıntılarında **Gizli modda izin 
 | Sorun | Çözüm |
 |---|---|
 | Eklenti "Yardımcı program çalışmıyor" diyor | `VideoIndir.exe` kapalı. Aç. |
-| Video giriş istiyor / özel | Giriş gerektiren videolar çoğu zaman indirilemez. |
+| Facebook / Instagram'da "Video çözülemedi" | Video giriş istiyor olabilir. **"Çözülmüyor mu? Sayfayı açıp videoyu bul"**'a bas, açılan pencerede siteye **bir kez giriş yap**. Uygulama otomatik devam eder ve giriş hatırlanır. |
+| Özel / kaldırılmış video | İndirilemez. |
 | YouTube "bot" diyor | Biraz bekleyip tekrar dene. |
 | Antivirüs uyarı verdi | Uygulama imzasız; klasörü antivirüste güvenli listeye ekle. |
 

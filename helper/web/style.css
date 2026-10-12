@@ -86,3 +86,4 @@ button.link:hover { color: var(--accent); }
 .src small { color: var(--muted); margin-right: 8px; }
 .src:hover, .src.sel { border-color: var(--accent); }
 .src.bad { opacity: .5; }
+button.link.attn { color: var(--accent); font-weight: 600; }
