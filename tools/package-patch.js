@@ -1,11 +1,12 @@
 // Yama paketi: iki sürüm arasında değişen helper\ ve extension\ dosyalarını küçük bir zip'e koyar.
-// Kullanım: node tools\package-patch.js <eski-commit-veya-etiket> <yeni-sürüm>
+// Kullanım: node tools\package-patch.js <eski-commit-veya-etiket> <yeni-sürüm> [--exe]
 // Kullanıcı zip'i kurulu VideoIndir klasörüne çıkarıp "dosyaları değiştir" der; tam paketi yeniden indirmesi gerekmez.
 const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 
-const [from, version] = process.argv.slice(2);
+const withExe = process.argv.includes('--exe'); // exe de değiştiyse yamaya ekle
+const [from, version] = process.argv.slice(2).filter((a) => a !== '--exe');
 if (!from || !version) { console.error('Kullanım: node tools\\package-patch.js <eski-commit> <yeni-sürüm>'); process.exit(1); }
 
 const root = path.join(__dirname, '..');
@@ -23,6 +24,8 @@ for (const f of files) {
   fs.mkdirSync(path.dirname(path.join(stage, f)), { recursive: true });
   fs.copyFileSync(path.join(root, f), path.join(stage, f));
 }
+
+if (withExe) { fs.copyFileSync(path.join(root, 'VideoIndir.exe'), path.join(stage, 'VideoIndir.exe')); files.push('VideoIndir.exe'); }
 
 // Üst klasörsüz zip: kurulu klasöre çıkarılınca dosyalar yerlerine oturur (helper\..., extension\...)
 const tar = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'tar.exe');

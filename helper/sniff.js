@@ -4,9 +4,10 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { spawn } = require('child_process');
+const { spawn, execFileSync } = require('child_process');
 
-const PROFILE_DIR = path.join(__dirname, 'sniff-profile'); // ayrı profil: girişler burada hatırlanır, kullanıcının asıl profiline dokunulmaz
+// Ayrı profil: girişler burada hatırlanır, kullanıcının asıl profiline dokunulmaz. Tarayıcıya göre ayrı klasör (farklı tarayıcılar profil biçimlerini paylaşamaz).
+const profileDirFor = (exe) => path.join(__dirname, 'sniff-profile-' + path.basename(exe, '.exe').toLowerCase());
 const MANIFEST_RE = /\.(m3u8|mpd)(\?|#|$)/i;
 const FILE_RE = /\.(mp4|webm|m4v|mov|mkv|mp3|m4a|flv|ogg|opus|wav)(\?|#|$)/i;
 // Parça (segment) dosyaları tek başına anlamsızdır
@@ -32,7 +33,31 @@ const FNS = extractFns();
 
 const PLAY_EXPR = `(() => { try { document.querySelectorAll('video').forEach((v) => { v.muted = true; const p = v.play(); if (p && p.catch) p.catch(() => {}); }); } catch (e) {} })()`;
 
+// Sistemin varsayılan tarayıcısı Chromium tabanlıysa (Chrome, Edge, Opera/Opera GX, Brave, Vivaldi) onun exe yolunu verir.
+// Firefox gibi CDP'yi desteklemeyenlerde null döner; o zaman yedek listeden Chromium tabanlı bir tarayıcı seçilir.
+const CHROMIUM_EXE = /^(chrome|msedge|brave|opera|vivaldi|chromium)\.exe$/i;
+function defaultBrowserExe() {
+  try {
+    const reg = (args) => execFileSync('reg', args, { encoding: 'utf8', windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+    const prog = reg(['query', 'HKCU\\Software\\Microsoft\\Windows\\Shell\\Associations\\UrlAssociations\\https\\UserChoice', '/v', 'ProgId'])
+      .match(/ProgId\s+REG_SZ\s+(.+?)\r?\n/); // "Opera GXStable" gibi boşluklu adlar olabilir
+    if (!prog) return null;
+    const cmd = reg(['query', `HKCR\\${prog[1].trim()}\\shell\\open\\command`, '/ve']);
+    const m = cmd.match(/REG_SZ\s+"([^"]+\.exe)"/i) || cmd.match(/REG_SZ\s+(\S+\.exe)/i);
+    if (!m) return null;
+    let exe = m[1];
+    // Opera'nın başlatıcısı (launcher.exe) bayrakları her zaman iletmez; asıl opera.exe aynı klasördedir
+    if (/launcher\.exe$/i.test(exe)) {
+      const real = path.join(path.dirname(exe), 'opera.exe');
+      if (fs.existsSync(real)) exe = real;
+    }
+    return CHROMIUM_EXE.test(path.basename(exe)) && fs.existsSync(exe) ? exe : null;
+  } catch { return null; }
+}
+
 function findBrowser() {
+  const preferred = defaultBrowserExe();
+  if (preferred) return preferred;
   const pf = process.env.ProgramFiles, pf86 = process.env['ProgramFiles(x86)'], local = process.env.LOCALAPPDATA;
   const list = [
     pf86 && path.join(pf86, 'Microsoft/Edge/Application/msedge.exe'),
@@ -41,6 +66,8 @@ function findBrowser() {
     pf86 && path.join(pf86, 'Google/Chrome/Application/chrome.exe'),
     local && path.join(local, 'Google/Chrome/Application/chrome.exe'),
     pf && path.join(pf, 'BraveSoftware/Brave-Browser/Application/brave.exe'),
+    local && path.join(local, 'Programs/Opera GX/opera.exe'),
+    local && path.join(local, 'Programs/Opera/opera.exe'),
   ].filter(Boolean);
   return list.find((p) => fs.existsSync(p)) || null;
 }
@@ -90,6 +117,7 @@ class Sniffer {
   async start() {
     const exe = findBrowser();
     if (!exe) throw Object.assign(new Error('no browser'), { friendly: 'Edge veya Chrome bulunamadı.' });
+    const PROFILE_DIR = profileDirFor(exe);
     fs.mkdirSync(PROFILE_DIR, { recursive: true });
     const portFile = path.join(PROFILE_DIR, 'DevToolsActivePort');
     fs.rmSync(portFile, { force: true });
@@ -137,7 +165,7 @@ class Sniffer {
         case 'Target.targetCreated':
           if (p.targetInfo.type === 'page') {
             const url = p.targetInfo.url || '';
-            if (/^(edge|chrome|devtools|chrome-extension|chrome-untrusted):/i.test(url)) break; // tarayıcının kendi iç sayfaları (senkronizasyon, hoş geldin...)
+            if (/^(edge|chrome|opera|gx|vivaldi|brave|devtools|chrome-extension|chrome-untrusted):/i.test(url)) break; // tarayıcının kendi iç sayfaları (senkronizasyon, hoş geldin, başlangıç sayfası...)
             const isMain = !this.mainSession && url === 'about:blank'; // açılışta verdiğimiz boş sekme
             const { sessionId } = await this.cdp.send('Target.attachToTarget', { targetId: p.targetInfo.targetId, flatten: true });
             await this.initSession(sessionId, 'page');

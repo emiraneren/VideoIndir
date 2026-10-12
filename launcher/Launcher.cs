@@ -344,29 +344,11 @@ namespace VideoIndir
 
         // ---------- uygulama penceresi ----------
 
-        // Edge (Windows'ta hazır gelir) "uygulama penceresi" modunda adres çubuğu/sekmesi olmayan ayrı bir pencere açar
+        // Uygulamayı kullanıcının SİSTEM (varsayılan) tarayıcısında açar; Windows bunu kendisi seçer.
         static void OpenApp(string videoUrl)
         {
             string target = SiteUrl + (videoUrl != null ? "?url=" + Uri.EscapeDataString(videoUrl) : "");
-            string pf = Environment.GetEnvironmentVariable("ProgramFiles");
-            string pf86 = Environment.GetEnvironmentVariable("ProgramFiles(x86)");
-            string local = Environment.GetEnvironmentVariable("LOCALAPPDATA");
-            string exe = FirstExisting(
-                Path.Combine(pf86, @"Microsoft\Edge\Application\msedge.exe"), Path.Combine(pf, @"Microsoft\Edge\Application\msedge.exe"),
-                Path.Combine(pf, @"Google\Chrome\Application\chrome.exe"), Path.Combine(pf86, @"Google\Chrome\Application\chrome.exe"),
-                Path.Combine(local, @"Google\Chrome\Application\chrome.exe"));
-            try
-            {
-                if (exe != null)
-                {
-                    // Edge, uygulama penceresinin son boyutunu profilinde saklar ve --window-size'ı yok sayar.
-                    // Ayrı bir profil kullanınca ilk açılış boyutu bizim ayarımızdan gelir; sonra yeniden boyutlandırırsan o hatırlanır.
-                    string profile = Path.Combine(rootDir, @"helper\app-profile");
-                    Process.Start(exe, "--app=\"" + target + "\" --window-size=480,720 --user-data-dir=\"" + profile + "\" --no-first-run --no-default-browser-check --disable-sync");
-                }
-                else Process.Start(target);
-            }
-            catch { Open(target); }
+            Open(target);
         }
 
         static string ClipboardUrl()
