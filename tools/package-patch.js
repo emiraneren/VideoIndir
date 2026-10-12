@@ -1,4 +1,5 @@
-// Yama paketi: iki sürüm arasında değişen helper\ ve extension\ dosyalarını küçük bir zip'e koyar.
+// Yama paketi (KÜMÜLATİF: <eski-commit> olarak her zaman ilk sürümün commit'i verilir, böylece hangi sürümden gelirse gelsin tek yama yeter).
+// İki sürüm arasında değişen helper\ ve extension\ dosyalarını küçük bir zip'e koyar.
 // Kullanım: node tools\package-patch.js <eski-commit-veya-etiket> <yeni-sürüm> [--exe]
 // Kullanıcı zip'i kurulu VideoIndir klasörüne çıkarıp "dosyaları değiştir" der; tam paketi yeniden indirmesi gerekmez.
 const fs = require('fs');
@@ -25,7 +26,16 @@ for (const f of files) {
   fs.copyFileSync(path.join(root, f), path.join(stage, f));
 }
 
-if (withExe) { fs.copyFileSync(path.join(root, 'VideoIndir.exe'), path.join(stage, 'VideoIndir.exe')); files.push('VideoIndir.exe'); }
+if (withExe) {
+  // exe ve yanındaki WebView2 DLL'leri (derleme çıktıları, depoda izlenmez)
+  // Guncelle.* da girer: güncelleyiciyi henüz bilmeyen eski sürümlere ilk kez bu yamayla ulaşır
+  for (const f of ['VideoIndir.exe', 'Microsoft.Web.WebView2.Core.dll', 'Microsoft.Web.WebView2.WinForms.dll', 'WebView2Loader.dll', 'Guncelle.bat', 'Guncelle.ps1']) {
+    fs.copyFileSync(path.join(root, f), path.join(stage, f));
+    files.push(f);
+  }
+  fs.copyFileSync(path.join(root, 'launcher', 'lib', 'WEBVIEW2-LICENSE.txt'), path.join(stage, 'WEBVIEW2-LICENSE.txt'));
+  files.push('WEBVIEW2-LICENSE.txt');
+}
 
 // Üst klasörsüz zip: kurulu klasöre çıkarılınca dosyalar yerlerine oturur (helper\..., extension\...)
 const tar = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'tar.exe');

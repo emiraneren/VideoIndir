@@ -22,3 +22,8 @@ helper/cookies.txt
 helper/gizli-baslat.vbs
 helper/sniff-cookies.txt
 helper/sniff-profile*/
+
+# WebView2 DLL'leri derlemede launcher/lib'den köke kopyalanır
+/Microsoft.Web.WebView2.Core.dll
+/Microsoft.Web.WebView2.WinForms.dll
+/WebView2Loader.dll

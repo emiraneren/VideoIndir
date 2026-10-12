@@ -9,7 +9,7 @@ YouTube, Instagram, Facebook, TikTok, X ve 1000'den fazla sitedeki videoyu isted
    - Windows *"Bilgisayarınızı korudu"* derse: **Ek bilgi → Yine de çalıştır**. (Uygulama imzalı değil, bu uyarı normaldir.)
 3. İlk açılışta `yt-dlp` ve `ffmpeg` bir kez indirilir (~180 MB). Sonra küçük bir pencere açılır.
 
-Ayrıca bir şey kurman gerekmez. Sağ alttaki tepsi simgesi uygulamanın çalıştığını gösterir; kapatmak için simgeye sağ tık → **Çıkış**.
+Ayrıca bir şey kurman gerekmez. Uygulama kendi küçük penceresinde açılır (tarayıcı gerekmez). Sağ alttaki tepsi simgesi uygulamanın çalıştığını gösterir; kapatmak için simgeye sağ tık → **Çıkış**.
 
 ## Kullanım
 
@@ -20,7 +20,7 @@ Ayrıca bir şey kurman gerekmez. Sağ alttaki tepsi simgesi uygulamanın çalı
 
 Dosyalar `İndirilenler\VideoIndir` klasörüne kaydedilir.
 
-**Güncelleme:** Önce tepsiden **Çıkış** yap. Releases'teki küçük **`VideoIndir-yama-...zip`** dosyasını (birkaç KB) VideoIndir klasörüne çıkar, "dosyaları değiştir" de. (Tam zip'i çıkarmak da olur.) İlk açılışta indirilen `yt-dlp`/`ffmpeg` korunur.
+**Güncelleme:** Tepsi simgesine sağ tık → **Güncellemeleri denetle…** (ya da klasördeki `Guncelle.bat`). GitHub'daki son sürümü denetler; farklıysa küçük yamayı indirip uygular, uygulamayı kapatıp yeniden açar. İlk açılışta indirilen `yt-dlp`/`ffmpeg` korunur.
 
 ## Tarayıcı eklentisi (isteğe bağlı)
 

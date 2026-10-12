@@ -8,9 +8,12 @@ using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Net;
+using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Automation;
 using System.Windows.Forms;
 using Microsoft.Win32;
@@ -42,6 +45,8 @@ namespace VideoIndir
         static HotKeyWindow hotKey;
         const int HotKeyId = 0x5649;   // "VI"
 
+        internal static bool SelfTestMode;   // WebView2 testinde başarısızlık yedek pencereyi açmasın
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] static extern bool SetDllDirectory(string path);
         [DllImport("user32.dll")] static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
         [DllImport("user32.dll")] static extern bool UnregisterHotKey(IntPtr hWnd, int id);
         [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
@@ -72,6 +77,15 @@ namespace VideoIndir
                 File.WriteAllText(args[1], FindBrowserUrl(false) ?? "(bulunamadi)", Encoding.UTF8);
                 return 0;
             }
+            // Hata ayıklama: uygulama penceresini (WebView2) açıp sayfanın yüklendiğini doğrular ("--webviewtest dosya.txt")
+            if (args.Length > 1 && args[0] == "--webviewtest")
+            {
+                helperDir = FindHelperDir();
+                if (helperDir == null) return 2;
+                rootDir = Directory.GetParent(helperDir).FullName;
+                SetupWebViewLoading();
+                return WebViewSelfTest(args[1]);
+            }
             bool created;
             using (Mutex mutex = new Mutex(true, @"Local\VideoIndir.Launcher", out created))
             {
@@ -89,6 +103,7 @@ namespace VideoIndir
                     return 2;
                 }
                 rootDir = Directory.GetParent(helperDir).FullName;
+                SetupWebViewLoading();
 
                 nodePath = FindNode();
                 if (nodePath == null)
@@ -316,6 +331,20 @@ namespace VideoIndir
             });
             menu.Items.Add(new ToolStripSeparator());
 
+            menu.Items.Add("Güncellemeleri denetle…", null, delegate
+            {
+                // Güncelleyici (Guncelle.bat) GitHub'daki son yamayı denetler, farklıysa indirip uygular; uygulamayı kapatıp yeniden açar
+                string bat = Path.Combine(rootDir, "Guncelle.bat");
+                if (!File.Exists(bat))
+                {
+                    MessageBox.Show("Guncelle.bat bulunamadı. Son sürümü GitHub'dan indir:\nhttps://github.com/emiraneren/VideoIndir/releases/latest", "VideoIndir", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return;
+                }
+                ProcessStartInfo upd = new ProcessStartInfo(bat);
+                upd.WorkingDirectory = rootDir;
+                Process.Start(upd);
+            });
+
             ToolStripMenuItem install = new ToolStripMenuItem("Tarayıcı eklentisi (isteğe bağlı)");
             List<BrowserInfo> browsers = FindBrowsers();
             if (browsers.Count == 0) { ToolStripMenuItem none = new ToolStripMenuItem("Kurulu tarayıcı bulunamadı"); none.Enabled = false; install.DropDownItems.Add(none); }
@@ -345,10 +374,96 @@ namespace VideoIndir
         // ---------- uygulama penceresi ----------
 
         // Uygulamayı kullanıcının SİSTEM (varsayılan) tarayıcısında açar; Windows bunu kendisi seçer.
+        static AppWindow appWin;
+
+        // WebView2 DLL'leri exe'nin yanında değilse (ör. exe masaüstüne kopyalandıysa) VideoIndir klasöründen yüklensin
+        static void SetupWebViewLoading()
+        {
+            try { SetDllDirectory(rootDir); } catch { }   // yerel WebView2Loader.dll için
+            AppDomain.CurrentDomain.AssemblyResolve += delegate(object s, ResolveEventArgs e)
+            {
+                string p = Path.Combine(rootDir, new AssemblyName(e.Name).Name + ".dll");
+                return File.Exists(p) ? Assembly.LoadFrom(p) : null;
+            };
+        }
+
+        // Uygulamayı kendi penceresinde açar (tarayıcı çubuğu yok, hangi tarayıcının kurulu olduğundan bağımsız).
+        // Pencere zaten açıksa öne getirir ve yeni bağlantıyla yeniler.
         static void OpenApp(string videoUrl)
         {
             string target = SiteUrl + (videoUrl != null ? "?url=" + Uri.EscapeDataString(videoUrl) : "");
+            try { ShowAppWindow(target); }
+            catch (Exception) { FallbackOpen(target); }   // WebView2 DLL'leri/bileşeni yoksa
+        }
+
+        // Ayrı yöntem: WebView2 DLL'leri eksikse hata OpenApp'in try bloğunda yakalanır
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        static void ShowAppWindow(string target)
+        {
+            if (appWin != null && !appWin.IsDisposed)
+            {
+                appWin.NavigateTo(target);
+                if (appWin.WindowState == FormWindowState.Minimized) appWin.WindowState = FormWindowState.Normal;
+                appWin.Activate();
+                return;
+            }
+            appWin = new AppWindow(target, tray != null ? tray.Icon : null);
+            appWin.FormClosed += delegate { appWin = null; };
+            appWin.Show();
+            appWin.Activate();
+        }
+
+        // Yedek: WebView2 yoksa Edge'in "uygulama penceresi", o da yoksa varsayılan tarayıcıda normal sekme
+        internal static void FallbackOpen(string target)
+        {
+            try
+            {
+                string pf = Environment.GetEnvironmentVariable("ProgramFiles");
+                string pf86 = Environment.GetEnvironmentVariable("ProgramFiles(x86)");
+                string edge = FirstExisting(Path.Combine(pf86, @"Microsoft\Edge\Application\msedge.exe"), Path.Combine(pf, @"Microsoft\Edge\Application\msedge.exe"));
+                if (edge != null) { Process.Start(edge, "--app=\"" + target + "\" --window-size=480,720"); return; }
+            }
+            catch { }
             Open(target);
+        }
+
+        internal static void Balloon(string text)
+        {
+            if (tray != null) tray.ShowBalloonTip(4000, "VideoIndir", text, ToolTipIcon.Info);
+        }
+
+        // Test: pencereyi aç, 6 sn bekle, sayfanın durumunu dosyaya yaz
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        static int WebViewSelfTest(string outFile)
+        {
+            SelfTestMode = true;
+            Application.EnableVisualStyles();
+            int code = 1;
+            AppWindow w = new AppWindow(SiteUrl + "?url=" + Uri.EscapeDataString("https://www.youtube.com/watch?v=jNQXAC9IVRw"), null);
+            w.Ready += async delegate
+            {
+                await Task.Delay(7000);
+                try
+                {
+                    string r = await w.Eval("JSON.stringify({baslik: document.title, yol: location.pathname, icGenislik: innerWidth, icYukseklik: innerHeight, sonucKartiGorunuyor: !document.getElementById('result').hidden, videoAdi: document.getElementById('title').textContent})");
+                    File.WriteAllText(outFile, r + " | form: " + w.ClientSize.Width + "x" + w.ClientSize.Height, Encoding.UTF8);
+                    code = 0;
+                }
+                catch (Exception ex) { File.WriteAllText(outFile, "HATA: " + ex.Message, Encoding.UTF8); }
+                w.Close();
+            };
+            w.FormClosed += delegate { Application.ExitThread(); };
+            System.Windows.Forms.Timer guard = new System.Windows.Forms.Timer();
+            guard.Interval = 40000;
+            guard.Tick += delegate
+            {
+                if (code != 0) File.WriteAllText(outFile, "ZAMAN ASIMI. InitError=" + w.InitError, Encoding.UTF8);
+                Application.ExitThread();
+            };
+            guard.Start();
+            w.Show();
+            Application.Run();
+            return code;
         }
 
         static string ClipboardUrl()

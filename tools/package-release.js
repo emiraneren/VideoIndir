@@ -21,6 +21,11 @@ fs.mkdirSync(path.join(stage, 'runtime'), { recursive: true });
 
 const copy = (from, to) => fs.cpSync(path.join(root, from), path.join(stage, to), { recursive: true });
 copy('VideoIndir.exe', 'VideoIndir.exe');
+// Uygulama penceresi için WebView2 DLL'leri (exe'nin yanında durmalı) ve lisansı; güncelleyici
+for (const f of ['Microsoft.Web.WebView2.Core.dll', 'Microsoft.Web.WebView2.WinForms.dll', 'WebView2Loader.dll']) copy(f, f);
+copy(path.join('launcher', 'lib', 'WEBVIEW2-LICENSE.txt'), 'WEBVIEW2-LICENSE.txt');
+copy('Guncelle.bat', 'Guncelle.bat');
+copy('Guncelle.ps1', 'Guncelle.ps1');
 copy('README.md', 'README.md');
 copy('extension', 'extension');
 for (const f of ['server.js', 'web.js', 'sniff.js', 'mp4fix.js', 'setup.js', 'web']) copy(path.join('helper', f), path.join('helper', f));
