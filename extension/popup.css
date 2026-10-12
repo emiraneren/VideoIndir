@@ -19,8 +19,9 @@ body { margin:0; width:340px; padding:14px; background:var(--bg); color:var(--fg
 .btn:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
 .btn.best { background:var(--accent); color:var(--accent-fg); border-color:var(--accent); }
 .btn.mp3 { width:100%; }
-.sources { display:flex; flex-direction:column; gap:4px; max-height:120px; overflow-y:auto; }
-.src { text-align:left; border:1px solid var(--line); background:var(--card); color:var(--fg); border-radius:6px; padding:6px 8px; font:inherit; font-size:12px; cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.sources { display:flex; flex-direction:column; gap:4px; max-height:150px; overflow-y:auto; }
+/* flex:none: çok kaynak olunca satırlar küçülüp üst üste binmesin; liste kaydırılır */
+.src { flex:none; text-align:left; border:1px solid var(--line); background:var(--card); color:var(--fg); border-radius:6px; padding:6px 8px; font:inherit; font-size:12px; cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .src:hover { border-color:var(--accent); }
 .src.sel { border-color:var(--accent); }
 .src small { color:var(--muted); margin-right:6px; }

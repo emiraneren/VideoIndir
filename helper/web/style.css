@@ -82,7 +82,7 @@ button.link { display: block; margin: 8px 2px 0; padding: 0; border: 0; backgrou
 button.link:hover { color: var(--accent); }
 .hint-text { margin: 0 0 10px; color: var(--muted); font-size: .9rem; }
 .sources { display: flex; flex-direction: column; gap: 6px; max-height: 220px; overflow-y: auto; margin-bottom: 12px; }
-.src { text-align: left; padding: 8px 10px; background: var(--soft); border-radius: 8px; font-size: .85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.src { flex: none; text-align: left; padding: 8px 10px; background: var(--soft); border-radius: 8px; font-size: .85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .src small { color: var(--muted); margin-right: 8px; }
 .src:hover, .src.sel { border-color: var(--accent); }
 .src.bad { opacity: .5; }

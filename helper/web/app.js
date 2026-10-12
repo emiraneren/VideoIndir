@@ -308,7 +308,12 @@ function renderSniffList(cands, snap) {
   const s = sniff;
   sniffList.textContent = '';
   if (s.probed.has(snap.pageUrl)) cands = [{ url: snap.pageUrl, kind: 'page', page: true }, ...cands.filter((c) => c.url !== snap.pageUrl)];
-  cands.forEach((c) => {
+  // Facebook gibi sitelerde yüzlerce adres olabilir: en olası 8'ini göster, gerisi tek tıkla açılır
+  const total = cands.length;
+  let shown = s.showAll ? cands : cands.slice(0, 8);
+  const picked = cands.find((c) => c.url === s.picked);
+  if (picked && !shown.includes(picked)) shown = [picked, ...shown];
+  shown.forEach((c) => {
     const e = s.probed.get(c.url);
     const b = document.createElement('button');
     b.type = 'button';
@@ -329,6 +334,14 @@ function renderSniffList(cands, snap) {
     });
     sniffList.appendChild(b);
   });
+  if (!s.showAll && total > 8) {
+    const more = document.createElement('button');
+    more.type = 'button';
+    more.className = 'link';
+    more.textContent = 'Diğer ' + (total - 8) + ' kaynağı göster';
+    more.addEventListener('click', () => { s.showAll = true; renderSniffList(cands, snap); });
+    sniffList.appendChild(more);
+  }
 }
 
 sniffBtn.addEventListener('click', startSniff);

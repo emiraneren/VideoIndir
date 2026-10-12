@@ -253,10 +253,16 @@ function refererFor(c) {
 }
 
 const KIND_LABEL = { net: 'akış', hook: 'api', perf: 'akış', video: 'video', iframe: 'oynatıcı', link: 'bağlantı', html: 'sayfa' };
+const SOURCE_LIMIT = 8; // Facebook gibi sitelerde yüzlerce adres olabilir; varsayılan olarak en olası 8'i göster
+let showAllSources = false;
+
 function renderSources(selectedUrl) {
   const box = $('sources');
   box.textContent = '';
-  candidates.forEach((c) => {
+  let shown = showAllSources ? candidates : candidates.slice(0, SOURCE_LIMIT);
+  const sel = candidates.find((c) => c.url === selectedUrl);
+  if (sel && !shown.includes(sel)) shown = [sel, ...shown]; // seçili kaynak her zaman görünsün
+  shown.forEach((c) => {
     const b = document.createElement('button');
     b.className = 'src' + (c.url === selectedUrl ? ' sel' : '') + (c.failed ? ' bad' : '');
     let text = c.url;
@@ -279,6 +285,13 @@ ${c.err}` : c.url; // başarısız kaynakta fare üstüne gelince hata görünü
     });
     box.appendChild(b);
   });
+  if (!showAllSources && candidates.length > SOURCE_LIMIT) {
+    const more = document.createElement('button');
+    more.className = 'link';
+    more.textContent = `Diğer ${candidates.length - SOURCE_LIMIT} kaynağı göster`;
+    more.addEventListener('click', () => { showAllSources = true; renderSources(selectedUrl); });
+    box.appendChild(more);
+  }
   $('sourcesBox').classList.toggle('hidden', !candidates.length);
 }
 
@@ -388,7 +401,11 @@ async function detect() {
 
   // Sayfa taraması sayfa adresi denemesiyle aynı anda başlar; yavaş bir siteyi beklemeden kaynaklar hazır olur
   const scanP = findCandidates().then((c) => {
-    if (!stale() && !source) { candidates = c; renderSources(); } // sayfa adresi hâlâ sürerken kaynaklar listede görünsün
+    if (!stale() && !source) { // sayfa adresi hâlâ sürerken kaynaklar listede görünsün
+      candidates = c;
+      renderSources();
+      if (c.length) showMsg('Sayfa adresi inceleniyor… Beklemek istemezsen aşağıdaki kaynaklardan birini seçebilirsin.');
+    }
     return c;
   });
 
