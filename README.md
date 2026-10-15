@@ -15,7 +15,7 @@ Ayrıca bir şey kurman gerekmez. Uygulama kendi küçük penceresinde açılır
 
 - Video bağlantısını yapıştır, kaliteyi ya da **MP3**'ü seç, **Dosyayı indir**'e bas.
 - Tarayıcıda video izlerken **Ctrl+Alt+D**'ye basarsan bağlantı kendiliğinden gelir.
-- İndirmeyi **İptal** düğmesiyle durdurabilirsin.
+- İndirmeyi **Duraklat** (sonra **Devam et**: kaldığı yerden sürer) ya da **İptal** edebilirsin. Aynı düğmeler tarayıcı eklentisinde de var.
 - Bağlantı çözülmüyorsa (video sayfanın içinde gizliyse): **"Çözülmüyor mu? Sayfayı açıp videoyu bul"** → açılan pencerede videoyu oynat, bulunan kaynak listelenir.
 
 Dosyalar `İndirilenler\VideoIndir` klasörüne kaydedilir.
