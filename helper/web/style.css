@@ -87,3 +87,8 @@ button.link:hover { color: var(--accent); }
 .src:hover, .src.sel { border-color: var(--accent); }
 .src.bad { opacity: .5; }
 button.link.attn { color: var(--accent); font-weight: 600; }
+
+/* duraklat / devam et */
+button.pause:hover, button.resume:hover { border-color: var(--accent); }
+.job.paused .bar > i { background: var(--muted); }
+.job.paused .state { color: var(--muted); }

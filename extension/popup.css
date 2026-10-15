@@ -45,3 +45,11 @@ body { margin:0; width:340px; padding:14px; background:var(--bg); color:var(--fg
 .pin { display:block; margin:0 0 10px auto; background:none; border:1px solid var(--line); color:var(--muted); border-radius:6px; padding:3px 8px; font:inherit; font-size:11px; cursor:pointer; }
 .pin:hover { border-color:var(--accent); color:var(--fg); }
 .job.cancelled .bar > i { background: var(--muted); }
+
+/* iş düğmeleri: Duraklat / Devam et / İptal */
+.job .ctl { display:flex; gap:6px; align-items:center; }
+.mini { border:1px solid var(--line); background:var(--bg); color:var(--fg); border-radius:6px; padding:2px 9px; font:inherit; font-size:11px; cursor:pointer; }
+.mini:hover:not(:disabled) { border-color:var(--accent); }
+.mini:disabled { opacity:.5; cursor:default; }
+.mini.cancel:hover:not(:disabled) { color:var(--accent); }
+.job.paused .bar > i { background:var(--muted); }

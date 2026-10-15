@@ -24,6 +24,9 @@ const OUT_DIR = path.join(os.homedir(), 'Downloads', 'VideoIndir');
 const jobs = new Map(); // id -> iş durumu
 let nextId = 1;
 
+// Önceki oturumdan kalan yarım iş klasörleri: bellekteki işler gitti, devam edilemez; disk dolmasın
+try { for (const n of fs.readdirSync(os.tmpdir())) if (n.startsWith('videoindir-job-')) fs.rmSync(path.join(os.tmpdir(), n), { recursive: true, force: true }); } catch {}
+
 const toolsReady = () => fs.existsSync(YTDLP) && fs.existsSync(path.join(BIN, 'ffmpeg.exe'));
 
 function send(res, code, body) {
@@ -137,19 +140,45 @@ async function info(url, { referer, ua, cookies }) {
   } finally { removeFile(cookieFile); }
 }
 
-const ACTIVE = ['starting', 'downloading', 'processing'];
+const ACTIVE = ['starting', 'downloading', 'processing', 'paused'];
 const activeNames = new Set(); // sürmekte olan işlerin hedef dosya adları
 
 // web: site üzerinden gelen iş. Her işin kendi klasörü ve tahmin edilemez kimliği vardır; eklenti listesinde görünmez.
-const procs = new Map(); // iş kimliği -> yt-dlp süreci (iptal için)
+const procs = new Map();     // iş kimliği -> çalışan yt-dlp süreci
+const controls = new Map();  // iş kimliği -> {resume, cancelPaused} (duraklatılmış işi sürdürmek/iptal etmek için)
 
-// Çalışan indirmeyi durdurur: yt-dlp ve alt süreçleri (ffmpeg) sonlandırılır, geçici dosyalar close olayında silinir
+const killTree = (p) => spawn('taskkill', ['/PID', String(p.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
+
+// İndirmeyi durdurur: yt-dlp ve alt süreçleri (ffmpeg) sonlandırılır, geçici dosyalar silinir.
+// Duraklatılmış bir iş de iptal edilebilir.
 function cancelJob(id) {
-  const job = jobs.get(String(id));
-  const p = procs.get(String(id));
-  if (!job || !p || !ACTIVE.includes(job.status)) return false;
-  job.cancelled = true;
-  spawn('taskkill', ['/PID', String(p.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
+  id = String(id);
+  const job = jobs.get(id);
+  if (!job) return false;
+  if (job.status === 'paused') { const c = controls.get(id); if (c) { c.cancelPaused(); return true; } return false; }
+  const p = procs.get(id);
+  if (!p || !ACTIVE.includes(job.status)) return false;
+  job.cancelled = true; job.paused = false;
+  killTree(p);
+  return true;
+}
+
+// Duraklat: süreç durdurulur ama geçici (.part/parça) dosyalar saklanır; "devam et" kaldığı yerden sürdürür.
+// Birleştirme/çevirme aşamasında (processing) duraklatılmaz: kısa sürer ve yarıda kesilirse baştan yapılır.
+function pauseJob(id) {
+  id = String(id);
+  const job = jobs.get(id), p = procs.get(id);
+  if (!job || !p || !['starting', 'downloading'].includes(job.status)) return false;
+  job.paused = true;
+  killTree(p);
+  return true;
+}
+
+function resumeJob(id) {
+  id = String(id);
+  const job = jobs.get(id), c = controls.get(id);
+  if (!job || !c || job.status !== 'paused') return false;
+  c.resume();
   return true;
 }
 
@@ -208,73 +237,99 @@ function startJob({ url, mode, height, referer, title, ua, cookies, profile, web
   }
   args.push('--', url);
 
-  const p = spawn(YTDLP, args, { windowsHide: true });
-  procs.set(id, p);
-  job.status = 'downloading';
-  let errTail = '';
-  let nStreams = 1, streamsDone = 0, doneBytes = 0;
-  const num = (x) => { const n = parseFloat(x); return Number.isFinite(n) ? n : null; };
-  const onLine = (line) => {
-    line = line.trim();
-    if (!line) return;
-    if (line.startsWith('TITLE:')) { if (!name) job.title = line.slice(6); }
-    else if (line.startsWith('NSTREAMS:')) nStreams = parseInt(line.slice(9), 10) || 1;
-    else if (line.startsWith('FILE:')) job.file = line.slice(5);
-    else if (line.startsWith('PROG|')) {
-      const [, status, dl, total, est, fi, fc, speed] = line.split('|');
-      const d = num(dl), t = num(total), e = num(est), i = num(fi), c = num(fc);
-      let pct = null;
-      if (c > 0 && i != null) pct = (i / c) * 100;            // parça tabanlı (HLS/DASH): en güvenilir
-      else if (t > 0 && d != null) pct = (d / t) * 100;
-      else if (e > 0 && d != null) pct = Math.min(99, (d / e) * 100);
-      if (status === 'finished') pct = 100;
-      if (pct != null) {
-        const overall = ((streamsDone + pct / 100) / nStreams) * 100; // video ve ses ayrı iniyorsa ikisi birlikte
-        job.percent = Math.max(job.percent, Math.min(overall, 99.9));
-      }
-      if (d != null) job.bytes = doneBytes + d;
-      job.speed = num(speed);
-      if (status === 'finished') {
-        doneBytes += d || 0; streamsDone++;
-        if (streamsDone >= nStreams) job.status = 'processing'; // birleştirme / çevirme / onarım aşaması
-      }
-    }
+  const finalCleanup = () => {
+    procs.delete(id); controls.delete(id);
+    removeFile(cookieFile);
+    fs.rm(tmpDir, { recursive: true, force: true }, () => {});
+    if (!web) activeNames.delete(baseKey);
   };
-  let buf = '';
-  p.stdout.on('data', (d) => {
-    buf += d;
-    const lines = buf.split(/\r?\n/);
-    buf = lines.pop();
-    lines.forEach(onLine);
+
+  // Süreç yeniden başlatılabilir (duraklat → devam et): aynı komut, aynı geçici klasör; yt-dlp .part/parça dosyalarından kaldığı yerden sürer
+  const launch = () => {
+    let errTail = '', buf = '';
+    let nStreams = 1, streamsDone = 0, doneBytes = 0;
+    const num = (x) => { const n = parseFloat(x); return Number.isFinite(n) ? n : null; };
+    const onLine = (line) => {
+      line = line.trim();
+      if (!line) return;
+      if (line.startsWith('TITLE:')) { if (!name) job.title = line.slice(6); }
+      else if (line.startsWith('NSTREAMS:')) nStreams = parseInt(line.slice(9), 10) || 1;
+      else if (line.startsWith('FILE:')) job.file = line.slice(5);
+      else if (line.startsWith('PROG|')) {
+        const [, status, dl, total, est, fi, fc, speed] = line.split('|');
+        const d = num(dl), t = num(total), e = num(est), i = num(fi), c = num(fc);
+        let pct = null;
+        if (c > 0 && i != null) pct = (i / c) * 100;            // parça tabanlı (HLS/DASH): en güvenilir
+        else if (t > 0 && d != null) pct = (d / t) * 100;
+        else if (e > 0 && d != null) pct = Math.min(99, (d / e) * 100);
+        if (status === 'finished') pct = 100;
+        if (pct != null) {
+          const overall = ((streamsDone + pct / 100) / nStreams) * 100; // video ve ses ayrı iniyorsa ikisi birlikte
+          job.percent = Math.max(job.percent, Math.min(overall, 99.9)); // devam edince geri gitmez
+        }
+        if (d != null) job.bytes = doneBytes + d;
+        job.speed = num(speed);
+        if (status === 'finished') {
+          doneBytes += d || 0; streamsDone++;
+          if (streamsDone >= nStreams) job.status = 'processing'; // birleştirme / çevirme / onarım aşaması
+        }
+      }
+    };
+
+    const p = spawn(YTDLP, args, { windowsHide: true });
+    procs.set(id, p);
+    job.status = 'downloading';
+    p.stdout.on('data', (d) => {
+      buf += d;
+      const lines = buf.split(/\r?\n/);
+      buf = lines.pop();
+      lines.forEach(onLine);
+    });
+    p.stderr.on('data', (d) => (errTail = (errTail + d).slice(-600)));
+    p.on('error', (e) => { job.status = 'error'; job.error = e.message; job.finishedAt = Date.now(); finalCleanup(); });
+    p.on('close', async (code) => {
+      if (buf) onLine(buf);
+      if (job.paused && !job.cancelled) {
+        // Duraklatıldı: geçici dosyalar ve çerez dosyası kalır; "devam et" aynı komutu yeniden başlatır
+        procs.delete(id);
+        job.status = 'paused'; job.pausedAt = Date.now(); job.speed = null;
+        return;
+      }
+      finalCleanup();
+      if (job.cancelled) {
+        job.status = 'cancelled'; job.finishedAt = Date.now();
+        if (web) fs.rm(outDir, { recursive: true, force: true }, () => {}); // site işinin klasörü yalnızca ona aittir
+        return;
+      }
+      if (code !== 0) {
+        job.status = 'error';
+        job.error = errTail.split('\n').filter(Boolean).pop() || `Çıkış kodu ${code}`;
+        job.finishedAt = Date.now();
+        return;
+      }
+      // yt-dlp çevirmeyi sessizce atlamış olabilir: dosya ".mp4" adlı ama MPEG-TS ise onar
+      if (mode !== 'mp3' && job.file) {
+        job.status = 'processing';
+        try { await ensureMp4(job.file, BIN); } catch {}
+      }
+      job.status = 'done'; job.percent = 100; job.finishedAt = Date.now();
+    });
+  };
+
+  controls.set(id, {
+    resume: () => { job.paused = false; launch(); },
+    // Duraklatılmış işi iptal et: çalışan süreç yok, geçici dosyalar burada silinir
+    cancelPaused: () => {
+      job.cancelled = true; job.paused = false; job.status = 'cancelled'; job.finishedAt = Date.now();
+      finalCleanup();
+      if (web) fs.rm(outDir, { recursive: true, force: true }, () => {});
+    },
   });
-  p.stderr.on('data', (d) => (errTail = (errTail + d).slice(-600)));
-  const cleanup = () => { procs.delete(id); removeFile(cookieFile); fs.rm(tmpDir, { recursive: true, force: true }, () => {}); if (!web) activeNames.delete(baseKey); };
-  p.on('error', (e) => { job.status = 'error'; job.error = e.message; job.finishedAt = Date.now(); cleanup(); });
-  p.on('close', async (code) => {
-    cleanup();
-    if (buf) onLine(buf);
-    if (job.cancelled) {
-      job.status = 'cancelled'; job.finishedAt = Date.now();
-      if (web) fs.rm(outDir, { recursive: true, force: true }, () => {}); // site işinin klasörü yalnızca ona aittir
-      return;
-    }
-    if (code !== 0) {
-      job.status = 'error';
-      job.error = errTail.split('\n').filter(Boolean).pop() || `Çıkış kodu ${code}`;
-      job.finishedAt = Date.now();
-      return;
-    }
-    // yt-dlp çevirmeyi sessizce atlamış olabilir: dosya ".mp4" adlı ama MPEG-TS ise onar
-    if (mode !== 'mp3' && job.file) {
-      job.status = 'processing';
-      try { await ensureMp4(job.file, BIN); } catch {}
-    }
-    job.status = 'done'; job.percent = 100; job.finishedAt = Date.now();
-  });
+  launch();
   return job;
 }
 
-const handleWeb = createWeb({ PUBLIC, WORK_DIR, info, startJob, cancelJob, jobs, ACTIVE, send, readBody, validUrl });
+const handleWeb = createWeb({ PUBLIC, WORK_DIR, info, startJob, cancelJob, pauseJob, resumeJob, jobs, ACTIVE, send, readBody, validUrl });
 
 const server = http.createServer(async (req, res) => {
   // DNS rebinding koruması: yalnızca bilinen host adları (yerel + VI_ALLOWED_HOSTS)
@@ -318,6 +373,10 @@ const server = http.createServer(async (req, res) => {
       const body = await readBody(req);
       if (!validUrl(body.url)) return send(res, 400, { error: 'Geçersiz adres' });
       return send(res, 200, startJob({ ...body, mode: body.mode === 'mp3' ? 'mp3' : 'video' }));
+    }
+    if ((u.pathname === '/pause' || u.pathname === '/resume') && req.method === 'POST') {
+      const { id } = await readBody(req);
+      return send(res, 200, { ok: u.pathname === '/pause' ? pauseJob(id) : resumeJob(id) });
     }
     if (u.pathname === '/cancel' && req.method === 'POST') {
       const { id } = await readBody(req);

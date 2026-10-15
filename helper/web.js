@@ -62,7 +62,7 @@ function explain(msg) {
   return { error: hit ? hit[1] : 'Video çözülemedi.', detail: raw };
 }
 
-function createWeb({ PUBLIC, WORK_DIR, info, startJob, cancelJob, jobs, ACTIVE, send, readBody, validUrl }) {
+function createWeb({ PUBLIC, WORK_DIR, info, startJob, cancelJob, pauseJob, resumeJob, jobs, ACTIVE, send, readBody, validUrl }) {
   const MAX_DURATION = parseInt(process.env.VI_MAX_DURATION || String(4 * 3600), 10); // saniye
   const MAX_WEB_JOBS = parseInt(process.env.VI_MAX_JOBS || (PUBLIC ? '3' : '6'), 10);
   const TTL_MS = 30 * 60 * 1000;                     // bitmiş dosyalar 30 dk sonra silinir
@@ -107,6 +107,8 @@ function createWeb({ PUBLIC, WORK_DIR, info, startJob, cancelJob, jobs, ACTIVE, 
   setInterval(() => {
     const now = Date.now();
     for (const [id, j] of jobs) {
+      // Duraklatılıp unutulan iş geçici dosyaları sonsuza dek tutmasın: 6 saat sonra iptal edilir
+      if (j.web && j.status === 'paused' && now - (j.pausedAt || j.startedAt) > 6 * 3600e3) cancelJob(id);
       if (j.web && !ACTIVE.includes(j.status) && now - (j.finishedAt || j.startedAt) > TTL_MS) {
         fs.rm(path.join(WORK_DIR, id), { recursive: true, force: true }, () => {});
         jobs.delete(id);
@@ -172,12 +174,13 @@ function createWeb({ PUBLIC, WORK_DIR, info, startJob, cancelJob, jobs, ACTIVE, 
       return true;
     }
 
-    // --- İptal
-    const cm = p.match(/^\/api\/job\/([a-f0-9]{24})\/cancel$/);
+    // --- İptal / duraklat / devam et
+    const cm = p.match(/^\/api\/job\/([a-f0-9]{24})\/(cancel|pause|resume)$/);
     if (cm && req.method === 'POST') {
       const j = jobs.get(cm[1]);
       if (!j || !j.web) return send(res, 404, { error: 'İş bulunamadı.' }), true;
-      send(res, 200, { ok: cancelJob(cm[1]) });
+      const act = { cancel: cancelJob, pause: pauseJob, resume: resumeJob }[cm[2]];
+      send(res, 200, { ok: act(cm[1]) });
       return true;
     }
 

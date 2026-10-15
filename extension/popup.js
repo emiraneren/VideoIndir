@@ -430,47 +430,80 @@ async function start(mode, height) {
 
 // ================= İş listesi =================
 
+// Her iş için bir kart tutulur ve her saniye YERİNDE güncellenir (baştan çizilmez): yoksa düğmeye basarken kart yenilenir ve tıklama kaybolur.
+const jobEls = new Map(); // iş kimliği -> {el, name, fill, state, ctl, mode}
+let jobOrder = '';
+
+function jobCardFor(j) {
+  let c = jobEls.get(j.id);
+  if (c) return c;
+  const el = document.createElement('div');
+  const name = document.createElement('div');
+  name.className = 'name';
+  const bar = document.createElement('div');
+  bar.className = 'bar';
+  const fill = document.createElement('i');
+  bar.appendChild(fill);
+  const row = document.createElement('div');
+  row.className = 'row';
+  const state = document.createElement('span');
+  const ctl = document.createElement('span');
+  ctl.className = 'ctl';
+  row.append(state, ctl);
+  el.append(name, bar, row);
+  c = { el, name, fill, state, ctl, mode: null };
+  jobEls.set(j.id, c);
+  return c;
+}
+
+// Duraklat / Devam et / İptal düğmeleri (iş durumuna göre); yalnızca durum değişince yeniden kurulur
+function setJobControls(c, j) {
+  const mode = j.status === 'done' ? 'done' : ['cancelled', 'error'].includes(j.status) ? 'end' : j.status;
+  if (c.mode === mode) return;
+  c.mode = mode;
+  c.ctl.textContent = '';
+  const mini = (text, cls, fn) => {
+    const b = document.createElement('button');
+    b.className = 'mini ' + cls;
+    b.textContent = text;
+    b.addEventListener('click', () => { b.disabled = true; fn().catch(() => {}); });
+    return b;
+  };
+  if (mode === 'paused') c.ctl.appendChild(mini('Devam et', 'resume', () => api('/resume', { id: j.id })));
+  else if (['starting', 'downloading'].includes(mode)) c.ctl.appendChild(mini('Duraklat', 'pause', () => api('/pause', { id: j.id })));
+  if (['starting', 'downloading', 'processing', 'paused'].includes(mode)) c.ctl.appendChild(mini('İptal', 'cancel', () => api('/cancel', { id: j.id })));
+  if (mode === 'done') {
+    const a = document.createElement('a');
+    a.textContent = 'Klasörde göster';
+    a.addEventListener('click', () => api('/open', { id: j.id }));
+    c.ctl.appendChild(a);
+  }
+}
+
 async function refreshJobs() {
   let jobs;
   try { jobs = await api('/jobs'); } catch { return; }
   const box = $('jobs');
-  box.textContent = '';
   for (const j of jobs) {
-    const el = document.createElement('div');
-    el.className = 'job' + (j.status === 'done' ? ' done' : '');
-    const name = document.createElement('div');
-    name.className = 'name';
-    name.textContent = j.title || j.url;
-    const bar = document.createElement('div');
-    bar.className = 'bar';
-    const fill = document.createElement('i');
-    fill.style.width = (j.status === 'error' ? 0 : j.percent) + '%';
-    bar.appendChild(fill);
-    const row = document.createElement('div');
-    row.className = 'row';
-    const state = document.createElement('span');
-    state.textContent = {
+    const c = jobCardFor(j);
+    c.el.className = 'job' + (j.status === 'done' ? ' done' : '') + (j.status === 'paused' ? ' paused' : '') + (j.status === 'cancelled' ? ' cancelled' : '');
+    c.name.textContent = j.title || j.url;
+    c.fill.style.width = (j.status === 'error' ? 0 : j.percent) + '%';
+    c.state.textContent = {
       starting: 'Başlıyor…',
       downloading: ['İndiriliyor %' + Math.floor(j.percent), fmtBytes(j.bytes), j.speed && fmtBytes(j.speed) + '/s'].filter(Boolean).join(' · '),
+      paused: ['Duraklatıldı %' + Math.floor(j.percent), fmtBytes(j.bytes)].filter(Boolean).join(' · '),
       processing: j.mode === 'mp3' ? 'MP3’e çevriliyor…' : 'MP4’e birleştiriliyor / çevriliyor…',
       done: 'Tamamlandı', cancelled: 'İptal edildi', error: 'Hata: ' + (j.error || ''),
     }[j.status];
-    row.appendChild(state);
-    if (['starting', 'downloading', 'processing'].includes(j.status)) {
-      // Çalışan indirmeyi durdurur; yarım dosyalar sunucuda silinir
-      const c = document.createElement('a');
-      c.textContent = 'İptal';
-      c.addEventListener('click', () => { c.textContent = 'İptal ediliyor…'; api('/cancel', { id: j.id }).catch(() => {}); });
-      row.appendChild(c);
-    }
-    if (j.status === 'done') {
-      const a = document.createElement('a');
-      a.textContent = 'Klasörde göster';
-      a.addEventListener('click', () => api('/open', { id: j.id }));
-      row.appendChild(a);
-    }
-    el.append(name, bar, row);
-    box.appendChild(el);
+    setJobControls(c, j);
+  }
+  // Kartları yalnızca sıra/küme değiştiyse yeniden diz (her saniye taşımak tıklamayı bozar)
+  const order = jobs.map((j) => j.id).join(',');
+  if (order !== jobOrder) {
+    jobOrder = order;
+    box.textContent = '';
+    for (const j of jobs) box.appendChild(jobEls.get(j.id).el);
   }
 }
 

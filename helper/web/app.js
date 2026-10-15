@@ -131,15 +131,34 @@ function jobCard(label, title, onRetry) {
   const button = (text, cls, fn) => {
     const b = document.createElement('button');
     b.type = 'button'; b.className = cls; b.textContent = text;
-    b.addEventListener('click', fn);
+    b.addEventListener('click', () => fn(b));
     return b;
   };
+
+  // Düğmeler iş durumuna göre: sürerken [Duraklat] [İptal], duraklatılmışken [Devam et] [İptal], birleştirirken yalnızca [İptal]
+  let handlers = null;   // {pause, resume, cancel}
+  let mode = 'running';  // running | paused | processing
+  const renderControls = () => {
+    if (!handlers) return;
+    const list = [];
+    if (mode === 'paused') list.push(button('Devam et', 'ghost resume', (b) => { b.disabled = true; handlers.resume(); }));
+    else if (mode === 'running') list.push(button('Duraklat', 'ghost pause', (b) => { b.disabled = true; handlers.pause(); }));
+    list.push(button('İptal', 'ghost cancel', (b) => { b.disabled = true; handlers.cancel(); }));
+    actions.replaceChildren(...list);
+  };
+
   return {
     el,
-    // İptal düğmesi yalnızca iş sürerken görünür
-    setCancel(fn) { actions.replaceChildren(button('İptal', 'ghost cancel', fn)); },
+    setControls(h) { handlers = h; renderControls(); },
+    setMode(m) {
+      if (m === mode) return;
+      mode = m;
+      el.classList.toggle('paused', m === 'paused');
+      renderControls();
+    },
     progress(percent, text) { fill.style.width = Math.max(0, Math.min(100, percent)) + '%'; state.textContent = text; },
     done(id, size, filename) {
+      el.classList.remove('paused');
       el.classList.add('done');
       fill.style.width = '100%';
       state.textContent = 'Hazır' + (size ? ' · ' + fmtBytes(size) : '');
@@ -151,11 +170,13 @@ function jobCard(label, title, onRetry) {
       actions.replaceChildren(a);
     },
     cancelled() {
+      el.classList.remove('paused');
       el.classList.add('cancelled');
       state.textContent = 'İptal edildi';
       actions.replaceChildren(...(onRetry ? [button('Tekrar başlat', 'ghost', () => { el.remove(); onRetry(); })] : []));
     },
     error(message, detail) {
+      el.classList.remove('paused');
       el.classList.add('error');
       state.textContent = message;
       if (detail) { const d = document.createElement('span'); d.className = 'detail'; d.textContent = detail; state.appendChild(d); }
@@ -174,7 +195,8 @@ async function startDownload(kind, height, label) {
       url: video.url, kind, height, profile: video.profile,
       referer: video.referer, title: video.fromSniff ? video.title : undefined, // sayfadan yakalanan akışlarda sayfa başlığı dosya adı olur
     });
-    card.setCancel(async () => { try { await request('/api/job/' + id + '/cancel', {}); } catch {} });
+    const act = (what) => () => request('/api/job/' + id + '/' + what, {}).catch(() => {});
+    card.setControls({ pause: act('pause'), resume: act('resume'), cancel: act('cancel') });
     poll(id, card);
   } catch (err) { card.error(err.message, err.detail); }
 }
@@ -186,6 +208,12 @@ function poll(id, card) {
       if (j.status === 'done') { clearInterval(timer); card.done(id, j.size, j.filename); return; }
       if (j.status === 'cancelled') { clearInterval(timer); card.cancelled(); return; }
       if (j.status === 'error') { clearInterval(timer); card.error(j.error, j.detail); return; }
+      if (j.status === 'paused') {
+        card.setMode('paused');
+        card.progress(j.percent, ['Duraklatıldı %' + Math.floor(j.percent), fmtBytes(j.bytes)].filter(Boolean).join(' · '));
+        return;
+      }
+      card.setMode(j.status === 'processing' ? 'processing' : 'running');
       const text = j.status === 'processing'
         ? STATE_TEXT.processing
         : ['İndiriliyor %' + Math.floor(j.percent), fmtBytes(j.bytes), j.speed && fmtBytes(j.speed) + '/s'].filter(Boolean).join(' · ');
