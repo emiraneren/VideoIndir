@@ -33,6 +33,7 @@ namespace VideoIndir
             Controls.Add(web);
             pendingUrl = url;
             Load += async delegate { await InitAsync(); };
+            FormClosed += delegate { if (!Program.SelfTestMode) Program.ShowCloseHint(); };
         }
 
         async Task InitAsync()
@@ -52,6 +53,7 @@ namespace VideoIndir
                 core.PermissionRequested += OnPermission;
                 core.NewWindowRequested += OnNewWindow;
                 core.DownloadStarting += OnDownload;
+                core.WebMessageReceived += OnWebMessage;
                 core.NavigationCompleted += delegate
                 {
                     if (readyRaised) return;
@@ -90,6 +92,20 @@ namespace VideoIndir
         {
             if (e.PermissionKind == CoreWebView2PermissionKind.ClipboardRead && e.Uri.StartsWith("http://127.0.0.1:9696"))
                 e.State = CoreWebView2PermissionState.Allow;
+        }
+
+        // Ayarlar sayfasındaki "Klasör seç…" düğmesi: klasör seçme penceresini aç, seçileni sayfaya geri yolla
+        void OnWebMessage(object sender, CoreWebView2WebMessageReceivedEventArgs e)
+        {
+            string msg;
+            try { msg = e.TryGetWebMessageAsString(); } catch { return; }
+            if (msg != "pickFolder" || !e.Source.StartsWith("http://127.0.0.1:9696")) return;
+            using (FolderBrowserDialog dlg = new FolderBrowserDialog())
+            {
+                dlg.Description = "Videoların kaydedileceği klasörü seç";
+                dlg.ShowNewFolderButton = true;
+                if (dlg.ShowDialog(this) == DialogResult.OK) web.CoreWebView2.PostWebMessageAsString(dlg.SelectedPath);
+            }
         }
 
         // Sayfadaki dış bağlantılar uygulama penceresinde değil, kullanıcının varsayılan tarayıcısında açılsın

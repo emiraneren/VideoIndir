@@ -8,6 +8,8 @@ const crypto = require('crypto');
 const { spawn } = require('child_process');
 const { ensureMp4 } = require('./mp4fix');
 const { createWeb } = require('./web');
+const data = require('./data');
+const { explain, isExtractorBreak } = require('./friendly');
 
 // Ortam değişkenleri: eklenti için varsayılanlar (yerel, 9696) değişmez. Site herkese açılacaksa VI_PUBLIC=1 kullanılır.
 const PUBLIC = process.env.VI_PUBLIC === '1';                  // herkese açık mod: daha sıkı sınırlar, eklenti uçları kapalı
@@ -19,7 +21,7 @@ const MAX_FILESIZE = process.env.VI_MAX_FILESIZE || (PUBLIC ? '1G' : '4G'); // s
 const BIN = path.join(__dirname, 'bin');
 const YTDLP = path.join(BIN, 'yt-dlp.exe');
 const FFMPEG_DIR = BIN;
-const OUT_DIR = path.join(os.homedir(), 'Downloads', 'VideoIndir');
+const outDirNow = () => data.getSettings().downloadDir; // ayarlardan; değişirse yeni indirmeler yeni klasöre gider
 
 const jobs = new Map(); // id -> iş durumu
 let nextId = 1;
@@ -140,22 +142,36 @@ async function info(url, { referer, ua, cookies }) {
   } finally { removeFile(cookieFile); }
 }
 
-const ACTIVE = ['starting', 'downloading', 'processing', 'paused'];
+const ACTIVE = ['queued', 'starting', 'downloading', 'processing', 'paused'];
+const RUNNING = ['starting', 'downloading', 'processing']; // yer tutan durumlar: eşzamanlı sınıra bunlar sayılır
 const activeNames = new Set(); // sürmekte olan işlerin hedef dosya adları
 
-// web: site üzerinden gelen iş. Her işin kendi klasörü ve tahmin edilemez kimliği vardır; eklenti listesinde görünmez.
 const procs = new Map();     // iş kimliği -> çalışan yt-dlp süreci
-const controls = new Map();  // iş kimliği -> {resume, cancelPaused} (duraklatılmış işi sürdürmek/iptal etmek için)
+const controls = new Map();  // iş kimliği -> {launch, cancelWaiting} (sıradaki/duraklatılmış işi başlatmak ya da iptal etmek için)
+const queue = [];            // sırada bekleyen iş kimlikleri
+const runningCount = () => [...jobs.values()].filter((j) => RUNNING.includes(j.status)).length;
+const queuePos = (id) => queue.indexOf(String(id)) + 1; // 0: sırada değil
+
+// Sıradaki işleri, ayarlardaki eşzamanlı indirme sayısına kadar başlat
+function pump() {
+  const max = data.getSettings().maxParallel;
+  while (queue.length && runningCount() < max) {
+    const id = queue.shift();
+    const job = jobs.get(id), c = controls.get(id);
+    if (!job || !c || job.status !== 'queued') continue;
+    c.launch();
+  }
+}
 
 const killTree = (p) => spawn('taskkill', ['/PID', String(p.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
 
 // İndirmeyi durdurur: yt-dlp ve alt süreçleri (ffmpeg) sonlandırılır, geçici dosyalar silinir.
-// Duraklatılmış bir iş de iptal edilebilir.
+// Sırada bekleyen ya da duraklatılmış bir iş de iptal edilebilir.
 function cancelJob(id) {
   id = String(id);
   const job = jobs.get(id);
   if (!job) return false;
-  if (job.status === 'paused') { const c = controls.get(id); if (c) { c.cancelPaused(); return true; } return false; }
+  if (job.status === 'paused' || job.status === 'queued') { const c = controls.get(id); if (c) { c.cancelWaiting(); return true; } return false; }
   const p = procs.get(id);
   if (!p || !ACTIVE.includes(job.status)) return false;
   job.cancelled = true; job.paused = false;
@@ -164,7 +180,7 @@ function cancelJob(id) {
 }
 
 // Duraklat: süreç durdurulur ama geçici (.part/parça) dosyalar saklanır; "devam et" kaldığı yerden sürdürür.
-// Birleştirme/çevirme aşamasında (processing) duraklatılmaz: kısa sürer ve yarıda kesilirse baştan yapılır.
+// Birleştirme/çevirme aşamasında (processing) ve sıradayken duraklatılmaz.
 function pauseJob(id) {
   id = String(id);
   const job = jobs.get(id), p = procs.get(id);
@@ -174,14 +190,20 @@ function pauseJob(id) {
   return true;
 }
 
+// Devam et: sınır doluysa sıranın başına geçer, yer açılınca kaldığı yerden sürer
 function resumeJob(id) {
   id = String(id);
   const job = jobs.get(id), c = controls.get(id);
   if (!job || !c || job.status !== 'paused') return false;
-  c.resume();
+  job.paused = false;
+  job.status = 'queued';
+  queue.unshift(id);
+  pump();
   return true;
 }
 
+// web: site/uygulama penceresinden gelen iş. Her işin tahmin edilemez kimliği vardır; eklenti listesinde görünmez.
+// Herkese açık modda dosyalar işe özel geçici klasörde tutulup tarayıcıya verilir; yerel kullanımda doğrudan indirme klasörüne kaydedilir.
 function startJob({ url, mode, height, referer, title, ua, cookies, profile, web }) {
   // Aynı iş zaten sürüyorsa ikincisini başlatma: iki yt-dlp aynı .part dosyalarını silip bozar (site işleri kendi klasöründe çalışır)
   if (!web) {
@@ -190,7 +212,8 @@ function startJob({ url, mode, height, referer, title, ua, cookies, profile, web
     }
   }
   const id = web ? crypto.randomBytes(12).toString('hex') : String(nextId++);
-  const outDir = web ? path.join(WORK_DIR, id) : OUT_DIR;
+  const toUser = !web || !PUBLIC; // yerel kullanım: dosya doğrudan indirme klasörüne
+  const outDir = toUser ? data.getSettings().downloadDir : path.join(WORK_DIR, id);
   let name = safeName(title);
   // Farklı iki iş aynı hedef dosyayı paylaşıyorsa (aynı başlık+tür+kalite) ikincisine sayı ekle
   const keyOf = (n) => `${n || url}|${mode}|${mode === 'mp3' ? 0 : height || 0}`;
@@ -199,7 +222,7 @@ function startJob({ url, mode, height, referer, title, ua, cookies, profile, web
     for (let n = 2; activeNames.has(baseKey); n++) { if (name) name = `${safeName(title)} (${n})`; baseKey = keyOf(name) + '#' + n; }
     activeNames.add(baseKey);
   }
-  const job = { id, url, mode, height, web: !!web, status: 'starting', percent: 0, title: name.replace(/%%/g, '%'), file: null, error: null, startedAt: Date.now() };
+  const job = { id, url, mode, height, web: !!web, local: toUser, status: 'queued', percent: 0, title: name.replace(/%%/g, '%'), file: null, error: null, detail: null, startedAt: Date.now() };
   jobs.set(id, job);
 
   fs.mkdirSync(outDir, { recursive: true });
@@ -219,7 +242,7 @@ function startJob({ url, mode, height, referer, title, ua, cookies, profile, web
     '--ffmpeg-location', FFMPEG_DIR,
     '-P', outDir,
     '-P', 'temp:' + tmpDir,
-    ...(web ? ['--max-filesize', MAX_FILESIZE] : []),
+    ...(web && PUBLIC ? ['--max-filesize', MAX_FILESIZE] : []),
     // Doğrudan akış adreslerinde (m3u8/mpd/mp4) yt-dlp'nin bulduğu başlık anlamsız olur; sekme başlığını kullan
     // Videoda kalite dosya adına eklenir; 480p ile 720p indirmesi birbirini "zaten indirilmiş" diye atlamasın
     '-o', (name ? name : web ? '%(title).120B' : '%(title).120B [%(id)s]') + (mode === 'mp3' ? '' : '%(height& [{}p]|)s') + '.%(ext)s',
@@ -243,8 +266,10 @@ function startJob({ url, mode, height, referer, title, ua, cookies, profile, web
     fs.rm(tmpDir, { recursive: true, force: true }, () => {});
     if (!web) activeNames.delete(baseKey);
   };
+  // Yalnızca herkese açık moddaki site işinin klasörü (WORK_DIR/id) işe aittir; indirme klasörüne dokunulmaz
+  const dropWorkDir = () => { if (web && !toUser) fs.rm(outDir, { recursive: true, force: true }, () => {}); };
 
-  // Süreç yeniden başlatılabilir (duraklat → devam et): aynı komut, aynı geçici klasör; yt-dlp .part/parça dosyalarından kaldığı yerden sürer
+  // Süreç yeniden başlatılabilir (sıra → başla, duraklat → devam et): aynı komut, aynı geçici klasör; yt-dlp .part/parça dosyalarından kaldığı yerden sürer
   const launch = () => {
     let errTail = '', buf = '';
     let nStreams = 1, streamsDone = 0, doneBytes = 0;
@@ -286,50 +311,122 @@ function startJob({ url, mode, height, referer, title, ua, cookies, profile, web
       lines.forEach(onLine);
     });
     p.stderr.on('data', (d) => (errTail = (errTail + d).slice(-600)));
-    p.on('error', (e) => { job.status = 'error'; job.error = e.message; job.finishedAt = Date.now(); finalCleanup(); });
-    p.on('close', async (code) => {
-      if (buf) onLine(buf);
-      if (job.paused && !job.cancelled) {
-        // Duraklatıldı: geçici dosyalar ve çerez dosyası kalır; "devam et" aynı komutu yeniden başlatır
-        procs.delete(id);
-        job.status = 'paused'; job.pausedAt = Date.now(); job.speed = null;
-        return;
-      }
+    p.on('error', (e) => {
+      const f = explain(e.message);
+      job.status = 'error'; job.error = f.error; job.detail = f.detail; job.finishedAt = Date.now();
       finalCleanup();
-      if (job.cancelled) {
-        job.status = 'cancelled'; job.finishedAt = Date.now();
-        if (web) fs.rm(outDir, { recursive: true, force: true }, () => {}); // site işinin klasörü yalnızca ona aittir
-        return;
-      }
-      if (code !== 0) {
-        job.status = 'error';
-        job.error = errTail.split('\n').filter(Boolean).pop() || `Çıkış kodu ${code}`;
-        job.finishedAt = Date.now();
-        return;
-      }
-      // yt-dlp çevirmeyi sessizce atlamış olabilir: dosya ".mp4" adlı ama MPEG-TS ise onar
-      if (mode !== 'mp3' && job.file) {
-        job.status = 'processing';
-        try { await ensureMp4(job.file, BIN); } catch {}
-      }
-      job.status = 'done'; job.percent = 100; job.finishedAt = Date.now();
+      data.pushEvent({ type: 'error', title: job.title, message: f.error });
+      setTimeout(pump, 0);
+    });
+    p.on('close', async (code) => {
+      try {
+        if (buf) onLine(buf);
+        if (job.paused && !job.cancelled) {
+          // Duraklatıldı: geçici dosyalar ve çerez dosyası kalır; "devam et" aynı komutu yeniden başlatır
+          procs.delete(id);
+          job.status = 'paused'; job.pausedAt = Date.now(); job.speed = null;
+          return;
+        }
+        finalCleanup();
+        if (job.cancelled) {
+          job.status = 'cancelled'; job.finishedAt = Date.now();
+          dropWorkDir();
+          return;
+        }
+        if (code !== 0) {
+          const raw = errTail.split('\n').filter(Boolean).pop() || `Çıkış kodu ${code}`;
+          const f = explain(raw);
+          job.status = 'error'; job.error = f.error; job.detail = f.detail; job.finishedAt = Date.now();
+          data.pushEvent({ type: 'error', title: job.title, message: f.error });
+          if (isExtractorBreak(raw)) onExtractorBreak(); // site değişmiş olabilir: indirme aracını güncellemeyi dene
+          return;
+        }
+        // yt-dlp çevirmeyi sessizce atlamış olabilir: dosya ".mp4" adlı ama MPEG-TS ise onar
+        if (mode !== 'mp3' && job.file) {
+          job.status = 'processing';
+          try { await ensureMp4(job.file, BIN); } catch {}
+        }
+        let size = 0;
+        try { size = job.file ? fs.statSync(job.file).size : 0; } catch {}
+        job.size = size;
+        job.status = 'done'; job.percent = 100; job.finishedAt = Date.now();
+        if (job.local && job.file) data.addHistory({ title: job.title, file: job.file, size, mode, height: job.height, url });
+        data.pushEvent({ type: 'done', title: job.title, file: job.local ? job.file : null, jobId: id });
+      } finally { setTimeout(pump, 0); }
     });
   };
 
   controls.set(id, {
-    resume: () => { job.paused = false; launch(); },
-    // Duraklatılmış işi iptal et: çalışan süreç yok, geçici dosyalar burada silinir
-    cancelPaused: () => {
+    launch,
+    // Sırada bekleyen ya da duraklatılmış işi iptal et: çalışan süreç yok, geçici dosyalar burada silinir
+    cancelWaiting: () => {
+      const qi = queue.indexOf(id); if (qi >= 0) queue.splice(qi, 1);
       job.cancelled = true; job.paused = false; job.status = 'cancelled'; job.finishedAt = Date.now();
       finalCleanup();
-      if (web) fs.rm(outDir, { recursive: true, force: true }, () => {});
+      dropWorkDir();
+      setTimeout(pump, 0);
     },
   });
-  launch();
+  queue.push(id);
+  pump();
   return job;
 }
 
-const handleWeb = createWeb({ PUBLIC, WORK_DIR, info, startJob, cancelJob, pauseJob, resumeJob, jobs, ACTIVE, send, readBody, validUrl });
+// ---------- İndirme aracı (yt-dlp) güncelleme ----------
+// YouTube/Facebook gibi siteler sık değişir; eski yt-dlp "çözülemedi" vermeye başlar. Günde bir kendiliğinden güncellenir.
+let ytdlpVer = null, ytdlpBusy = false, lastBreakUpdate = 0;
+const runYtdlp = (args, timeoutMs = 20000) => new Promise((resolve) => {
+  const p = spawn(YTDLP, args, { windowsHide: true });
+  let out = '';
+  const timer = setTimeout(() => p.kill(), timeoutMs);
+  p.stdout.on('data', (d) => (out += d));
+  p.stderr.on('data', (d) => (out += d));
+  p.on('error', () => { clearTimeout(timer); resolve({ code: -1, out }); });
+  p.on('close', (code) => { clearTimeout(timer); resolve({ code, out }); });
+});
+async function ytdlpVersion(force) {
+  if (ytdlpVer && !force) return ytdlpVer;
+  const r = await runYtdlp(['--version']);
+  if (r.code === 0) ytdlpVer = r.out.trim();
+  return ytdlpVer;
+}
+async function updateYtdlp({ force } = {}) {
+  if (ytdlpBusy) return { busy: true };
+  if (!force && runningCount() > 0) return { skipped: true }; // indirme sürerken dosyayı değiştirme
+  ytdlpBusy = true;
+  try {
+    const before = await ytdlpVersion(true);
+    const r = await runYtdlp(['-U', '--no-warnings'], 240000);
+    const after = await ytdlpVersion(true);
+    data.setSettings({ lastYtdlpCheck: Date.now() });
+    return { ok: r.code === 0, before, after, updated: !!before && before !== after, message: r.out.trim().split('\n').pop() };
+  } finally { ytdlpBusy = false; }
+}
+// Bir indirme "site değişmiş" tipi hatayla bitince (saatte en çok bir kez) aracı güncellemeyi dene
+function onExtractorBreak() {
+  if (PUBLIC || Date.now() - lastBreakUpdate < 3600e3) return;
+  lastBreakUpdate = Date.now();
+  updateYtdlp({ force: true }).catch(() => {});
+}
+function autoUpdateTick() {
+  const s = data.getSettings();
+  if (PUBLIC || !s.autoUpdateYtdlp || Date.now() - s.lastYtdlpCheck < 24 * 3600e3) return;
+  updateYtdlp().catch(() => {});
+}
+setTimeout(autoUpdateTick, 30000).unref();
+setInterval(autoUpdateTick, 6 * 3600e3).unref();
+
+// ---------- Dosya işlemleri (yalnızca yerel kullanım) ----------
+const revealFile = (file) => {
+  const target = file && fs.existsSync(file) ? ['/select,', file] : [data.getSettings().downloadDir];
+  spawn('explorer.exe', target, { detached: true, stdio: 'ignore' }).unref();
+};
+const openFile = (file) => { if (file && fs.existsSync(file)) spawn('explorer.exe', [file], { detached: true, stdio: 'ignore' }).unref(); };
+
+const handleWeb = createWeb({
+  PUBLIC, WORK_DIR, info, startJob, cancelJob, pauseJob, resumeJob, jobs, ACTIVE, send, readBody, validUrl,
+  local: { data, pump, queuePos, runningCount, updateYtdlp, ytdlpVersion, revealFile, openFile, onExtractorBreak, isUpdating: () => ytdlpBusy },
+});
 
 const server = http.createServer(async (req, res) => {
   // DNS rebinding koruması: yalnızca bilinen host adları (yerel + VI_ALLOWED_HOSTS)
@@ -355,19 +452,21 @@ const server = http.createServer(async (req, res) => {
   const u = new URL(req.url, `http://${host}`);
   try {
     // --- Site (statik sayfa + /api/*)
-    if (u.pathname.startsWith('/api/') && !toolsReady()) return send(res, 503, { error: 'Sunucuda yt-dlp / ffmpeg kurulu değil.' });
+    const needsTools = !/^\/api\/(settings|history|events)/.test(u.pathname);
+    if (u.pathname.startsWith('/api/') && needsTools && !toolsReady()) return send(res, 503, { error: 'Sunucuda yt-dlp / ffmpeg kurulu değil.' });
     if (await handleWeb(req, res, u)) return;
 
     // --- Eklenti uçları: yalnızca yerel kullanımda; herkese açık modda tamamen kapalı. Siteden de çağrılamaz.
     if (PUBLIC) return send(res, 404, { error: 'yok' });
     if (origin && !isExt) return send(res, 403, { error: 'origin' });
-    if (u.pathname === '/ping') return send(res, 200, { ok: true, toolsReady: toolsReady(), outDir: OUT_DIR });
-    if (!toolsReady()) return send(res, 503, { error: 'yt-dlp / ffmpeg kurulu değil. Kur.bat dosyasını çalıştırın.' });
+    if (u.pathname === '/ping') return send(res, 200, { ok: true, toolsReady: toolsReady(), outDir: outDirNow() });
+    if (!toolsReady()) return send(res, 503, { error: 'İndirme araçları henüz kurulmamış. VideoIndir uygulamasını (VideoIndir.exe) açınca kendiliğinden indirilir.' });
 
     if (u.pathname === '/info' && req.method === 'POST') {
       const body = await readBody(req);
       if (!validUrl(body.url)) return send(res, 400, { error: 'Geçersiz adres' });
-      return send(res, 200, await info(body.url, body));
+      try { return send(res, 200, await info(body.url, body)); }
+      catch (e) { const f = explain(e.message); return send(res, 422, { error: f.error, detail: f.detail }); }
     }
     if (u.pathname === '/download' && req.method === 'POST') {
       const body = await readBody(req);
@@ -384,13 +483,12 @@ const server = http.createServer(async (req, res) => {
     }
     if (u.pathname === '/jobs') {
       // site işleri (web) eklenti listesinde görünmez
-      return send(res, 200, [...jobs.values()].filter((j) => !j.web).slice(-8).reverse());
+      return send(res, 200, [...jobs.values()].filter((j) => !j.web).slice(-8).reverse().map((j) => ({ ...j, queuePos: queuePos(j.id) })));
     }
     if (u.pathname === '/open' && req.method === 'POST') {
       const { id } = await readBody(req);
       const job = jobs.get(String(id));
-      const target = job && job.file && fs.existsSync(job.file) ? ['/select,', job.file] : [OUT_DIR];
-      spawn('explorer.exe', target, { detached: true, stdio: 'ignore' }).unref();
+      revealFile(job && job.file);
       return send(res, 200, { ok: true });
     }
     send(res, 404, { error: 'yok' });
@@ -403,4 +501,4 @@ server.on('error', (e) => {
   if (e.code === 'EADDRINUSE') { console.log('VideoIndir zaten çalışıyor.'); process.exit(0); }
   throw e;
 });
-server.listen(PORT, HOST, () => console.log(`VideoIndir hazır: http://${HOST === '0.0.0.0' ? '127.0.0.1' : HOST}:${PORT}  (site)  →  ${OUT_DIR}${PUBLIC ? '  [herkese açık mod]' : ''}`));
+server.listen(PORT, HOST, () => console.log(`VideoIndir hazır: http://${HOST === '0.0.0.0' ? '127.0.0.1' : HOST}:${PORT}  (site)  →  ${outDirNow()}${PUBLIC ? '  [herkese açık mod]' : ''}`));

@@ -7,18 +7,23 @@ YouTube, Instagram, Facebook, TikTok, X ve 1000'den fazla sitedeki videoyu isted
 1. [**Releases**](../../releases/latest) sayfasından `VideoIndir-vX.Y.Z.zip` dosyasını indir ve bir klasöre çıkar (masaüstü olabilir).
 2. `VideoIndir.exe`'yi çift tıkla.
    - Windows *"Bilgisayarınızı korudu"* derse: **Ek bilgi → Yine de çalıştır**. (Uygulama imzalı değil, bu uyarı normaldir.)
-3. İlk açılışta `yt-dlp` ve `ffmpeg` bir kez indirilir (~180 MB). Sonra küçük bir pencere açılır.
+3. İlk açılışta `yt-dlp` ve `ffmpeg` bir kez indirilir (~180 MB, ilerleme çubuğu görünür). Sonra küçük bir pencere açılır.
 
 Ayrıca bir şey kurman gerekmez. Uygulama kendi küçük penceresinde açılır (tarayıcı gerekmez). Sağ alttaki tepsi simgesi uygulamanın çalıştığını gösterir; kapatmak için simgeye sağ tık → **Çıkış**.
 
 ## Kullanım
 
-- Video bağlantısını yapıştır, kaliteyi ya da **MP3**'ü seç, **Dosyayı indir**'e bas.
+- **Yapıştır**'a bas (ya da bağlantıyı kutuya yapıştır), kaliteyi ya da **MP3**'ü seç. Dosya doğrudan indirme klasörüne kaydedilir; bitince **Klasörde göster** ve **Aç** düğmeleri çıkar, sağ altta bildirim gelir.
 - Tarayıcıda video izlerken **Ctrl+Alt+D**'ye basarsan bağlantı kendiliğinden gelir.
 - İndirmeyi **Duraklat** (sonra **Devam et**: kaldığı yerden sürer) ya da **İptal** edebilirsin. Aynı düğmeler tarayıcı eklentisinde de var.
 - Bağlantı çözülmüyorsa (video sayfanın içinde gizliyse): **"Çözülmüyor mu? Sayfayı açıp videoyu bul"** → açılan pencerede videoyu oynat, bulunan kaynak listelenir.
 
-Dosyalar `İndirilenler\VideoIndir` klasörüne kaydedilir.
+Üstteki sekmeler:
+
+- **Geçmiş:** indirdiklerin; buradan açabilir ya da klasörde gösterebilirsin (listeden silmek dosyayı silmez).
+- **Ayarlar:** indirme klasörü (varsayılan `İndirilenler\VideoIndir`), aynı anda en fazla kaç indirme (fazlası sırada bekler), bildirimler ve indirme aracının (yt-dlp) güncellenmesi. Siteler değiştikçe araç eskir; uygulama günde bir kendiliğinden günceller, hata verirse de otomatik güncellemeyi dener.
+
+Pencereyi kapatırsan uygulama tepside çalışmaya devam eder. Kapalıyken eklenti ya da simge ile tekrar açılır.
 
 **Güncelleme:** Tepsi simgesine sağ tık → **Güncellemeleri denetle…** (ya da klasördeki `Guncelle.bat`). GitHub'daki son sürümü denetler; farklıysa küçük yamayı indirip uygular, uygulamayı kapatıp yeniden açar. İlk açılışta indirilen `yt-dlp`/`ffmpeg` korunur.
 
@@ -39,7 +44,7 @@ Gizli pencerede kullanmak için eklentinin ayrıntılarında **Gizli modda izin 
 
 | Sorun | Çözüm |
 |---|---|
-| Eklenti "Yardımcı program çalışmıyor" diyor | `VideoIndir.exe` kapalı. Aç. |
+| Eklenti "VideoIndir uygulaması kapalı" diyor | Eklentideki **Uygulamayı aç** düğmesine bas ya da `VideoIndir.exe`'yi çalıştır. |
 | Facebook / Instagram'da "Video çözülemedi" | Video giriş istiyor olabilir. **"Çözülmüyor mu? Sayfayı açıp videoyu bul"**'a bas, açılan pencerede siteye **bir kez giriş yap**. Uygulama otomatik devam eder ve giriş hatırlanır. |
 | Açılan pencere giriş istiyor | Bu pencere ayrı bir profil kullanır; normal tarayıcındaki giriş orada görünmez (tarayıcılar çerezleri başka programlara vermez). **Bir kez** giriş yap, sonra hatırlanır. Hazır oturumunu kullanmak istersen tarayıcı eklentisini kur. |
 | Özel / kaldırılmış video | İndirilemez. |

@@ -32,12 +32,7 @@ async function request(path, body) {
 function setStatus(text, isError, detail) {
   statusEl.textContent = text || '';
   statusEl.className = 'status' + (isError ? ' error' : '');
-  if (detail) {
-    const d = document.createElement('span');
-    d.className = 'detail';
-    d.textContent = detail;
-    statusEl.appendChild(d);
-  }
+  appendDetail(statusEl, detail);
 }
 
 // ---------- 1) Bağlantıyı çöz ----------
@@ -67,10 +62,12 @@ function autoSubmitIfUrl() {
 urlInput.addEventListener('paste', autoSubmitIfUrl);
 $('paste').addEventListener('click', async () => {
   try {
-    urlInput.value = (await navigator.clipboard.readText()).trim();
+    const text = (await navigator.clipboard.readText()).trim();
+    if (!/^https?:\/\//i.test(text)) { setStatus('Panoda bir video bağlantısı yok. Önce videonun bağlantısını kopyala, sonra tekrar bas.', true); return; }
+    urlInput.value = text;
     urlInput.focus();
     autoSubmitIfUrl();
-  } catch { setStatus('Panoya erişilemedi. Bağlantıyı kutuya elle yapıştır (Ctrl+V).', true); }
+  } catch { setStatus('Pano okunamadı. Tarayıcı izin istiyorsa "İzin ver"e bas; olmazsa bağlantıyı kutuya yapıştır.', true); }
 });
 
 // Masaüstü uygulaması bağlantıyı adresle gönderir (?url=...): kutuya yaz ve hemen çöz. Yalnızca çözer, indirmeyi başlatmaz.
@@ -121,6 +118,17 @@ function renderResult(meta) {
 const STATE_TEXT = { starting: 'Başlıyor…', processing: 'Dosya hazırlanıyor (birleştirme / dönüştürme)…' };
 const ACTIVE_STATES = ['starting', 'downloading', 'processing'];
 
+// Teknik ayrıntı (ham hata) varsayılan olarak gizli; merak eden "Teknik ayrıntı"ya basar
+function appendDetail(parent, detail) {
+  if (!detail) return;
+  const b = document.createElement('button');
+  b.type = 'button'; b.className = 'mini-link'; b.textContent = 'Teknik ayrıntı';
+  const d = document.createElement('span');
+  d.className = 'detail'; d.textContent = detail; d.hidden = true;
+  b.addEventListener('click', () => { d.hidden = !d.hidden; });
+  parent.append(b, d);
+}
+
 function jobCard(label, title, onRetry) {
   const el = document.createElement('div');
   el.className = 'job';
@@ -134,10 +142,11 @@ function jobCard(label, title, onRetry) {
     b.addEventListener('click', () => fn(b));
     return b;
   };
+  const fire = (path) => request(path, {}).catch(() => {});
 
-  // Düğmeler iş durumuna göre: sürerken [Duraklat] [İptal], duraklatılmışken [Devam et] [İptal], birleştirirken yalnızca [İptal]
+  // Düğmeler iş durumuna göre: sürerken [Duraklat] [İptal], duraklatılmışken [Devam et] [İptal], sıradayken/birleştirirken yalnızca [İptal]
   let handlers = null;   // {pause, resume, cancel}
-  let mode = 'running';  // running | paused | processing
+  let mode = 'running';  // running | paused | processing | queued
   const renderControls = () => {
     if (!handlers) return;
     const list = [];
@@ -154,13 +163,22 @@ function jobCard(label, title, onRetry) {
       if (m === mode) return;
       mode = m;
       el.classList.toggle('paused', m === 'paused');
+      el.classList.toggle('queued', m === 'queued');
       renderControls();
     },
     progress(percent, text) { fill.style.width = Math.max(0, Math.min(100, percent)) + '%'; state.textContent = text; },
-    done(id, size, filename) {
-      el.classList.remove('paused');
+    // local: dosya zaten indirme klasörüne kaydedildi (ikinci bir "indir" adımı yok); değilse (herkese açık site) tarayıcıdan indirilir
+    done(id, size, filename, local) {
+      el.classList.remove('paused', 'queued');
       el.classList.add('done');
       fill.style.width = '100%';
+      if (local) {
+        state.textContent = 'Hazır' + (size ? ' · ' + fmtBytes(size) : '') + ' · indirme klasörüne kaydedildi';
+        actions.replaceChildren(
+          button('Klasörde göster', 'ghost', () => fire('/api/job/' + id + '/reveal')),
+          button('Aç', 'ghost', () => fire('/api/job/' + id + '/open')));
+        return;
+      }
       state.textContent = 'Hazır' + (size ? ' · ' + fmtBytes(size) : '');
       const a = document.createElement('a');
       a.className = 'dl';
@@ -170,16 +188,16 @@ function jobCard(label, title, onRetry) {
       actions.replaceChildren(a);
     },
     cancelled() {
-      el.classList.remove('paused');
+      el.classList.remove('paused', 'queued');
       el.classList.add('cancelled');
       state.textContent = 'İptal edildi';
       actions.replaceChildren(...(onRetry ? [button('Tekrar başlat', 'ghost', () => { el.remove(); onRetry(); })] : []));
     },
     error(message, detail) {
-      el.classList.remove('paused');
+      el.classList.remove('paused', 'queued');
       el.classList.add('error');
       state.textContent = message;
-      if (detail) { const d = document.createElement('span'); d.className = 'detail'; d.textContent = detail; state.appendChild(d); }
+      appendDetail(state, detail);
       actions.replaceChildren(...(onRetry ? [button('Tekrar dene', 'ghost', () => { el.remove(); onRetry(); })] : []));
     },
   };
@@ -205,9 +223,19 @@ function poll(id, card) {
   const timer = setInterval(async () => {
     try {
       const j = await request('/api/job/' + id);
-      if (j.status === 'done') { clearInterval(timer); card.done(id, j.size, j.filename); return; }
+      if (j.status === 'done') {
+        clearInterval(timer);
+        card.done(id, j.size, j.filename, j.local);
+        if (typeof refreshHistory === 'function' && !$('view-history').hidden) refreshHistory();
+        return;
+      }
       if (j.status === 'cancelled') { clearInterval(timer); card.cancelled(); return; }
       if (j.status === 'error') { clearInterval(timer); card.error(j.error, j.detail); return; }
+      if (j.status === 'queued') {
+        card.setMode('queued');
+        card.progress(0, 'Sırada bekliyor' + (j.queuePos ? ' (' + j.queuePos + '. sıra)' : '') + ' · önceki indirmeler bitince kendiliğinden başlar');
+        return;
+      }
       if (j.status === 'paused') {
         card.setMode('paused');
         card.progress(j.percent, ['Duraklatıldı %' + Math.floor(j.percent), fmtBytes(j.bytes)].filter(Boolean).join(' · '));
@@ -396,3 +424,104 @@ $('sniffStop').addEventListener('click', async () => {
   stopSniffPolling();
   sniffText.textContent = 'Pencere kapatıldı. Listeden bir kaynak seçebilirsin.';
 });
+
+
+// ---------- 5) Yerel kullanım: sekmeler, geçmiş, ayarlar ----------
+// Bu uçlar yalnızca bilgisayarda çalışan uygulamada vardır; herkese açık sitede /api/settings 404 verir ve sekmeler gizli kalır.
+const views = { download: $('view-download'), history: $('view-history'), settings: $('view-settings') };
+
+function showView(name) {
+  Object.entries(views).forEach(([k, el]) => { el.hidden = k !== name; });
+  document.querySelectorAll('#tabs .tab').forEach((t) => t.classList.toggle('on', t.dataset.view === name));
+  if (name === 'history') refreshHistory();
+  if (name === 'settings') loadSettings();
+}
+document.querySelectorAll('#tabs .tab').forEach((t) => t.addEventListener('click', () => showView(t.dataset.view)));
+(async function detectLocal() {
+  try { await request('/api/settings'); $('tabs').hidden = false; } catch {}
+})();
+
+const fmtDate = (ms) => {
+  const d = new Date(ms);
+  return d.toLocaleDateString('tr-TR') + ' ' + d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+};
+
+// --- Geçmiş ---
+async function refreshHistory() {
+  let list;
+  try { list = await request('/api/history'); } catch { return; }
+  const box = $('historyList');
+  box.textContent = '';
+  $('historyEmpty').hidden = list.length > 0;
+  $('historyClear').hidden = list.length === 0;
+  list.forEach((h) => {
+    const el = document.createElement('div');
+    el.className = 'hitem' + (h.exists ? '' : ' gone');
+    const t = document.createElement('div');
+    t.className = 'ht'; t.textContent = h.title || 'Video';
+    const m = document.createElement('div');
+    m.className = 'hm';
+    m.textContent = [h.mode === 'mp3' ? 'MP3' : (h.height ? h.height + 'p MP4' : 'MP4'), fmtBytes(h.size), fmtDate(h.at)].filter(Boolean).join(' · ')
+      + (h.exists ? '' : ' · dosya yerinde değil (silinmiş ya da taşınmış)');
+    const a = document.createElement('div');
+    a.className = 'ha';
+    const btn = (text, fn) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'ghost'; b.textContent = text; b.addEventListener('click', fn); return b; };
+    if (h.exists) {
+      a.appendChild(btn('Aç', () => request('/api/history/open', { id: h.id }).catch(() => {})));
+      a.appendChild(btn('Klasörde göster', () => request('/api/history/reveal', { id: h.id }).catch(() => {})));
+    }
+    a.appendChild(btn('Listeden sil', async () => { await request('/api/history/delete', { id: h.id }).catch(() => {}); refreshHistory(); }));
+    el.append(t, m, a);
+    box.appendChild(el);
+  });
+}
+$('historyClear').addEventListener('click', async () => {
+  if (!confirm('Geçmiş listesi temizlensin mi? (İndirilen dosyalar silinmez.)')) return;
+  await request('/api/history/clear', {}).catch(() => {});
+  refreshHistory();
+});
+
+// --- Ayarlar ---
+let settingsLoaded = null;
+function settingsMsg(text, isErr) {
+  const el = $('settingsStatus');
+  el.textContent = text || '';
+  el.className = 'status' + (isErr ? ' error' : '');
+}
+async function loadSettings() {
+  try {
+    const s = await request('/api/settings');
+    settingsLoaded = s;
+    $('setDir').value = s.downloadDir;
+    $('setParallel').value = String(s.maxParallel);
+    $('setNotify').checked = s.notify;
+    $('setAutoUpdate').checked = s.autoUpdateYtdlp;
+    $('ytdlpInfo').textContent = 'Sürüm: ' + (s.ytdlpVersion || 'bilinmiyor') + (s.lastYtdlpCheck ? ' · son denetim: ' + fmtDate(s.lastYtdlpCheck) : '');
+    $('pickDir').hidden = !(window.chrome && window.chrome.webview); // klasör seçme penceresi yalnızca uygulama penceresinde var
+  } catch (e) { settingsMsg(e.message, true); }
+}
+async function saveSettings(patch, okText) {
+  try { await request('/api/settings', patch); settingsMsg(okText || 'Kaydedildi ✓'); await loadSettings(); }
+  catch (e) { settingsMsg(e.message, true); await loadSettings(); }
+}
+$('saveDir').addEventListener('click', () => saveSettings({ downloadDir: $('setDir').value.trim() }, 'İndirme klasörü kaydedildi ✓ Yeni indirmeler oraya gidecek.'));
+$('defaultDir').addEventListener('click', () => { if (settingsLoaded) saveSettings({ downloadDir: settingsLoaded.defaultDir }, 'Varsayılan klasöre dönüldü ✓'); });
+$('openDir').addEventListener('click', () => request('/api/open-folder', {}).catch(() => {}));
+$('setParallel').addEventListener('change', (e) => saveSettings({ maxParallel: parseInt(e.target.value, 10) }, 'Kaydedildi ✓ Fazla indirmeler sırada bekler.'));
+$('setNotify').addEventListener('change', (e) => saveSettings({ notify: e.target.checked }));
+$('setAutoUpdate').addEventListener('change', (e) => saveSettings({ autoUpdateYtdlp: e.target.checked }));
+$('ytdlpUpdate').addEventListener('click', async () => {
+  const b = $('ytdlpUpdate');
+  b.disabled = true;
+  settingsMsg('İndirme aracı denetleniyor… bu birkaç dakika sürebilir.');
+  try { const r = await request('/api/ytdlp/update', {}); settingsMsg(r.message, r.ok === false && !r.busy); }
+  catch (e) { settingsMsg(e.message, true); }
+  finally { b.disabled = false; loadSettings(); }
+});
+// Uygulama penceresinde klasör seçme penceresi (exe açar, seçilen yolu geri yollar)
+if (window.chrome && window.chrome.webview) {
+  window.chrome.webview.addEventListener('message', (e) => {
+    if (typeof e.data === 'string' && e.data) { $('setDir').value = e.data; saveSettings({ downloadDir: e.data }, 'İndirme klasörü kaydedildi ✓ Yeni indirmeler oraya gidecek.'); }
+  });
+  $('pickDir').addEventListener('click', () => window.chrome.webview.postMessage('pickFolder'));
+}

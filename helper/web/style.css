@@ -92,3 +92,37 @@ button.link.attn { color: var(--accent); font-weight: 600; }
 button.pause:hover, button.resume:hover { border-color: var(--accent); }
 .job.paused .bar > i { background: var(--muted); }
 .job.paused .state { color: var(--muted); }
+
+/* ===== sekmeler, geçmiş, ayarlar ===== */
+.tabs { display: flex; gap: 6px; margin: 0 0 18px; padding: 4px; background: var(--soft); border-radius: 12px; }
+.tab { flex: 1; padding: 8px 10px; border: 0; background: none; border-radius: 9px; color: var(--muted); font-weight: 600; }
+.tab:hover { color: var(--fg); }
+.tab.on { background: var(--card); color: var(--fg); box-shadow: 0 1px 3px #0003; }
+.view[hidden] { display: none; }
+.section-title { margin: 0; font-size: 1.1rem; }
+.row-between { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.empty { color: var(--muted); text-align: center; padding: 28px 0; }
+
+.history { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.hitem { padding: 12px 14px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; }
+.hitem.gone { opacity: .6; }
+.hitem .ht { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hitem .hm { color: var(--muted); font-size: .82rem; margin-top: 2px; }
+.hitem .ha { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.hitem .ha button { padding: 5px 12px; border-radius: 8px; font-size: .85rem; }
+
+.setting { margin-top: 12px; }
+.setting > label:first-child { display: block; font-weight: 600; margin-bottom: 8px; }
+.setting .hint-text { margin: 8px 0 0; }
+.dir-row { display: flex; gap: 8px; }
+.dir-row input, .setting select { flex: 1; min-width: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); color: var(--fg); font: inherit; }
+.setting select { flex: none; width: 90px; }
+.actions-row { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.check { display: flex; align-items: center; gap: 8px; font-weight: 400 !important; margin-top: 10px; }
+.check input { width: 18px; height: 18px; accent-color: var(--accent); }
+
+/* iş kartı: sırada, teknik ayrıntı */
+.job.queued .bar > i { background: var(--muted); }
+.job.queued .state { color: var(--muted); }
+button.mini-link { display: inline; margin-left: 8px; padding: 0; border: 0; background: none; color: var(--muted); font-size: .8rem; text-decoration: underline; cursor: pointer; }
+.status .detail, .job .state .detail { display: block; margin-top: 4px; color: var(--muted); font-size: .8rem; word-break: break-word; }

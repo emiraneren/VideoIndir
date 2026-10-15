@@ -44,6 +44,11 @@ namespace VideoIndir
         static System.Windows.Forms.Timer timer;
         static HotKeyWindow hotKey;
         const int HotKeyId = 0x5649;   // "VI"
+        const string ShowEventName = @"Local\VideoIndir.Show";
+        static EventWaitHandle showEvent;           // ikinci başlatma bu olayı tetikler → pencere öne gelir
+        static System.Windows.Forms.Timer eventTimer;
+        static int eventSeq = -1;                   // yardımcıdan okunan son olay numarası (-1: henüz başlangıç noktası alınmadı)
+        static string balloonFile;                  // bildirime tıklanınca klasörde gösterilecek dosya
 
         internal static bool SelfTestMode;   // WebView2 testinde başarısızlık yedek pencereyi açmasın
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] static extern bool SetDllDirectory(string path);
@@ -69,7 +74,9 @@ namespace VideoIndir
         static int Main(string[] args)
         {
             bool selfTest = args.Length > 0 && args[0] == "--selftest";
-            bool silent = Array.IndexOf(args, "--silent") >= 0;   // Windows açılışında pencere açmadan başla
+            // "--silent": Windows açılışında pencere açmadan başla. "videoindir:" bağlantısı: tarayıcı eklentisi uygulamayı sessizce başlatır.
+            bool silent = Array.IndexOf(args, "--silent") >= 0;
+            foreach (string a in args) if (a.StartsWith("videoindir:", StringComparison.OrdinalIgnoreCase)) silent = true;
             // Hata ayıklama: Ctrl+Alt+D'nin yaptığı işi 3 sn sonra yapar (o sırada öndeki tarayıcının adresini bir dosyaya yazar)
             if (args.Length > 1 && args[0] == "--hotkeytest")
             {
@@ -99,9 +106,14 @@ namespace VideoIndir
             {
                 if (!created)
                 {
-                    if (!selfTest) MessageBox.Show("VideoIndir zaten çalışıyor. Sağ alttaki tepsi simgesine (^) bak.", "VideoIndir", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    // Zaten çalışıyor: kutu göstermek yerine açık olan uygulamanın penceresini öne getirt (sessiz başlatmada hiçbir şey yapma)
+                    if (!selfTest && !silent)
+                    {
+                        try { EventWaitHandle.OpenExisting(ShowEventName).Set(); } catch { }
+                    }
                     return 0;
                 }
+                showEvent = new EventWaitHandle(false, EventResetMode.AutoReset, ShowEventName);
                 Application.EnableVisualStyles();
 
                 helperDir = FindHelperDir();
@@ -148,9 +160,29 @@ namespace VideoIndir
                 timer.Tick += delegate { Tick(); };
                 timer.Start();
 
+                RegisterProtocol();
+
+                // İkinci kez başlatılınca (simgeye çift tık, kısayol) mevcut pencereyi aç
+                eventTimer = new System.Windows.Forms.Timer();
+                eventTimer.Interval = 400;
+                int pollTicks = 0;
+                eventTimer.Tick += delegate
+                {
+                    if (showEvent.WaitOne(0)) OpenApp(null);
+                    if (++pollTicks % 5 == 0) PollEvents();   // ~2 sn'de bir: biten/başarısız indirme bildirimleri
+                };
+                eventTimer.Start();
+                tray.BalloonTipClicked += delegate
+                {
+                    string f = balloonFile;
+                    balloonFile = null;
+                    if (f != null && File.Exists(f)) RevealInExplorer(f);
+                };
+
                 Application.Run();
 
                 timer.Stop();
+                eventTimer.Stop();
                 UnregisterHotKey(hotKey.Handle, HotKeyId);
                 tray.Visible = false;
                 StopHelper();
@@ -213,33 +245,64 @@ namespace VideoIndir
             if (ready()) return true;
             if (silent) return false;
 
-            if (MessageBox.Show("İlk kurulum: yt-dlp ve ffmpeg indirilecek (yaklaşık 180 MB, resmi GitHub sürümleri). Devam edilsin mi?",
+            if (MessageBox.Show("İlk kurulum: video indirmek için gereken iki araç (yt-dlp ve ffmpeg, yaklaşık 180 MB, resmi GitHub sürümleri) indirilecek. Devam edilsin mi?",
                 "VideoIndir", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return false;
 
+            // İlerleme çubuklu kurulum penceresi: setup.js "PROG|yazı|yüzde" satırları yazar
             Form wait = new Form();
-            wait.Text = "VideoIndir";
+            wait.Text = "VideoIndir ilk kurulum";
             wait.FormBorderStyle = FormBorderStyle.FixedDialog;
             wait.StartPosition = FormStartPosition.CenterScreen;
             wait.ControlBox = false;
-            wait.ClientSize = new Size(340, 70);
+            wait.ClientSize = new Size(380, 110);
             Label l = new Label();
-            l.Text = "yt-dlp ve ffmpeg indiriliyor…\nBu birkaç dakika sürebilir.";
-            l.Dock = DockStyle.Fill;
-            l.TextAlign = ContentAlignment.MiddleCenter;
+            l.Text = "Hazırlanıyor…";
+            l.SetBounds(16, 14, 348, 40);
+            Label note = new Label();
+            note.Text = "Bu işlem yalnızca bir kez yapılır; internet hızına göre birkaç dakika sürebilir.";
+            note.ForeColor = SystemColors.GrayText;
+            note.SetBounds(16, 76, 348, 30);
+            ProgressBar bar = new ProgressBar();
+            bar.Minimum = 0; bar.Maximum = 100;
+            bar.SetBounds(16, 52, 348, 18);
             wait.Controls.Add(l);
+            wait.Controls.Add(bar);
+            wait.Controls.Add(note);
             wait.Show();
 
             ProcessStartInfo psi = new ProcessStartInfo(nodePath, "setup.js");
             psi.WorkingDirectory = helperDir;
             psi.UseShellExecute = false;
             psi.CreateNoWindow = true;
-            Process p = Process.Start(psi);
-            while (!p.HasExited) { Application.DoEvents(); Thread.Sleep(100); }
+            psi.RedirectStandardOutput = true;
+            psi.StandardOutputEncoding = Encoding.UTF8;
+            Process p = new Process();
+            p.StartInfo = psi;
+            string progText = null;
+            int progPercent = -1;
+            p.OutputDataReceived += delegate(object sender, DataReceivedEventArgs ev)
+            {
+                if (ev.Data == null || !ev.Data.StartsWith("PROG|")) return;
+                string[] parts = ev.Data.Split('|');
+                if (parts.Length < 3) return;
+                int pc;
+                if (int.TryParse(parts[2], out pc)) { progText = parts[1]; progPercent = pc; }
+            };
+            p.Start();
+            p.BeginOutputReadLine();
+            while (!p.HasExited)
+            {
+                if (progText != null) l.Text = progText;
+                if (progPercent >= 0) bar.Value = Math.Max(0, Math.Min(100, progPercent));
+                Application.DoEvents();
+                Thread.Sleep(100);
+            }
+            p.WaitForExit();
             wait.Close();
 
             if (p.ExitCode != 0 || !ready())
             {
-                MessageBox.Show("Kurulum tamamlanamadı. İnternet bağlantını kontrol edip tekrar dene.", "VideoIndir", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show("Kurulum tamamlanamadı. İnternet bağlantını kontrol edip uygulamayı yeniden aç.", "VideoIndir", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return false;
             }
             return true;
@@ -333,8 +396,8 @@ namespace VideoIndir
             });
             menu.Items.Add("İndirilenler klasörünü aç", null, delegate
             {
-                string d = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), @"Downloads\VideoIndir");
-                Directory.CreateDirectory(d);
+                string d = DownloadDirNow();
+                try { Directory.CreateDirectory(d); } catch { }
                 Process.Start("explorer.exe", "\"" + d + "\"");
             });
             menu.Items.Add(new ToolStripSeparator());
@@ -438,6 +501,118 @@ namespace VideoIndir
         internal static void Balloon(string text)
         {
             if (tray != null) tray.ShowBalloonTip(4000, "VideoIndir", text, ToolTipIcon.Info);
+        }
+
+        static string DataDir()
+        {
+            string d = Environment.GetEnvironmentVariable("VI_DATA_DIR");
+            if (string.IsNullOrEmpty(d)) d = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "VideoIndir");
+            Directory.CreateDirectory(d);
+            return d;
+        }
+
+        // Pencere ilk kez kapatılınca uygulamanın kapanmadığını (tepside çalıştığını) bir kez söyle
+        internal static void ShowCloseHint()
+        {
+            try
+            {
+                string marker = Path.Combine(DataDir(), "close-hint-shown");
+                if (File.Exists(marker)) return;
+                File.WriteAllText(marker, "1");
+                if (tray != null) tray.ShowBalloonTip(6000, "VideoIndir çalışmaya devam ediyor",
+                    "Pencereyi kapattın ama uygulama sağ alttaki tepside açık. Tekrar açmak için simgeye çift tıkla. Tamamen kapatmak için simgeye sağ tıkla → Çıkış.", ToolTipIcon.Info);
+            }
+            catch { }
+        }
+
+        static void RevealInExplorer(string file)
+        {
+            try { Process.Start("explorer.exe", "/select,\"" + file + "\""); } catch { }
+        }
+
+        // Küçük JSON okuma yardımcısı (yardımcı servisin yanıtları)
+        static Dictionary<string, object> GetJson(string url, int timeoutMs)
+        {
+            try
+            {
+                HttpWebRequest r = (HttpWebRequest)WebRequest.Create(url);
+                r.Timeout = timeoutMs;
+                r.Proxy = null;
+                using (HttpWebResponse resp = (HttpWebResponse)r.GetResponse())
+                using (StreamReader sr = new StreamReader(resp.GetResponseStream(), Encoding.UTF8))
+                    return new System.Web.Script.Serialization.JavaScriptSerializer().Deserialize<Dictionary<string, object>>(sr.ReadToEnd());
+            }
+            catch { return null; }
+        }
+
+        static string DownloadDirNow()
+        {
+            Dictionary<string, object> s = GetJson("http://127.0.0.1:9696/api/settings", 1500);
+            object d;
+            if (s != null && s.TryGetValue("downloadDir", out d) && d is string && ((string)d).Length > 0) return (string)d;
+            return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), @"Downloads\VideoIndir");
+        }
+
+        // Biten/başarısız indirmeler için tepsi bildirimi (Ayarlar'dan kapatılabilir)
+        static void PollEvents()
+        {
+            try
+            {
+                string q = "http://127.0.0.1:9696/api/events" + (eventSeq >= 0 ? "?after=" + eventSeq : "");
+                Dictionary<string, object> r = GetJson(q, 1200);
+                if (r == null) return;
+                object last;
+                if (eventSeq < 0)
+                {
+                    // ilk yoklama: eski olayları gösterme, yalnızca bundan sonrakileri
+                    eventSeq = r.TryGetValue("last", out last) ? Convert.ToInt32(last) : 0;
+                    return;
+                }
+                bool notify = !r.ContainsKey("notify") || !(r["notify"] is bool) || (bool)r["notify"];
+                object evs;
+                if (!r.TryGetValue("events", out evs) || !(evs is System.Collections.IEnumerable)) return;
+                foreach (object o in (System.Collections.IEnumerable)evs)
+                {
+                    Dictionary<string, object> e = o as Dictionary<string, object>;
+                    if (e == null) continue;
+                    int seq = e.ContainsKey("seq") ? Convert.ToInt32(e["seq"]) : 0;
+                    if (seq > eventSeq) eventSeq = seq;
+                    if (!notify) continue;
+                    string type = e.ContainsKey("type") ? e["type"] as string : null;
+                    string title = e.ContainsKey("title") ? e["title"] as string : null;
+                    if (string.IsNullOrEmpty(title)) title = "Video";
+                    if (title.Length > 80) title = title.Substring(0, 80) + "…";
+                    if (type == "done")
+                    {
+                        balloonFile = e.ContainsKey("file") ? e["file"] as string : null;
+                        tray.ShowBalloonTip(5000, "İndirme bitti", title + (balloonFile != null ? "\nKlasörde görmek için tıkla." : ""), ToolTipIcon.Info);
+                    }
+                    else if (type == "error")
+                    {
+                        balloonFile = null;
+                        string msg = e.ContainsKey("message") ? e["message"] as string : "İndirilemedi.";
+                        tray.ShowBalloonTip(6000, "İndirilemedi", title + "\n" + msg, ToolTipIcon.Warning);
+                    }
+                }
+            }
+            catch { }
+        }
+
+        // Tarayıcı eklentisi "videoindir://start" ile uygulamayı açabilsin diye kullanıcı düzeyinde (yönetici gerekmez) kaydolur
+        static void RegisterProtocol()
+        {
+            try
+            {
+                string exe = Application.ExecutablePath;
+                using (RegistryKey k = Registry.CurrentUser.CreateSubKey(@"Software\Classes\videoindir"))
+                {
+                    k.SetValue("", "URL:VideoIndir");
+                    k.SetValue("URL Protocol", "");
+                    using (RegistryKey cmd = k.CreateSubKey(@"shell\open\command"))
+                        cmd.SetValue("", "\"" + exe + "\" \"%1\"");
+                }
+            }
+            catch { }
         }
 
         // Test: pencereyi aç, 6 sn bekle, sayfanın durumunu dosyaya yaz

@@ -6,6 +6,7 @@ const dns = require('dns').promises;
 const net = require('net');
 
 const { Sniffer, COOKIE_FILE: SNIFF_COOKIES } = require('./sniff');
+const { explain, isExtractorBreak } = require('./friendly');
 
 const WEB_DIR = path.join(__dirname, 'web');
 const COOKIES_TXT = path.join(__dirname, 'cookies.txt'); // isteğe bağlı: Facebook/Instagram gibi giriş isteyen siteler için sunucu tarafı çerezler
@@ -44,25 +45,7 @@ async function assertPublicTarget(url) {
   if (addrs.some((a) => isPrivateIp(a.address))) throw Object.assign(new Error('private target'), { friendly: 'Bu adres desteklenmiyor.' });
 }
 
-// yt-dlp hatalarını kullanıcıya anlaşılır mesaja çevirir; ham mesajdaki dosya yolları temizlenir
-function explain(msg) {
-  const raw = String(msg || '').replace(/^ERROR:\s*/i, '').replace(/[A-Za-z]:\\[^\s'"]*/g, '…').slice(0, 220);
-  const rules = [
-    [/not a bot|confirm you.re not a robot|sign in to confirm/i, 'Bu site sunucuyu bot sanıp doğrulama istiyor. YouTube bunu sunucu adreslerine sık yapar; çerez eklenmedikçe indirilemeyebilir.'],
-    [/private video|members.only|login|log in|sign in|cookies|authenticat|age.?restrict|confirm your age|requires? (a )?(account|subscription)/i, 'Bu video özel ya da giriş gerektiriyor. Sunucuya çerez eklenmedikçe indirilemez.'],
-    // Facebook/Instagram gibi sitelerde giriş duvarı çoğu zaman "Cannot parse data" olarak görünür
-    [/cannot parse data|empty media response|rate-limit reached|checkpoint|http error 403|forbidden/i,'Bu video giriş gerektiriyor olabilir. "Çözülmüyor mu? Sayfayı açıp videoyu bul"a bas, açılan pencerede siteye bir kez giriş yap; uygulama otomatik devam eder.'],
-    [/unsupported url|no video|no suitable|unable to extract/i,'Bu bağlantıdan video çıkarılamadı. Doğrudan bir video/gönderi sayfasının adresini yapıştır.'],
-    [/unavailable|removed|deleted|not available|copyright|geo|country|does not exist|404/i, 'Video mevcut değil, kaldırılmış ya da bu bölgede kullanılamıyor.'],
-    [/zaman aşımı|timed? ?out/i, 'Site zamanında cevap vermedi. Biraz sonra tekrar dene.'],
-    [/larger than max-filesize|max.filesize/i, 'Dosya izin verilen boyut sınırından büyük. Daha düşük bir kalite seç.'],
-    [/ffmpeg|conversion failed|postprocess/i, 'Video indirildi ama dosya işlenirken hata oluştu.'],
-  ];
-  const hit = rules.find(([re]) => re.test(msg));
-  return { error: hit ? hit[1] : 'Video çözülemedi.', detail: raw };
-}
-
-function createWeb({ PUBLIC, WORK_DIR, info, startJob, cancelJob, pauseJob, resumeJob, jobs, ACTIVE, send, readBody, validUrl }) {
+function createWeb({ PUBLIC, WORK_DIR, info, startJob, cancelJob, pauseJob, resumeJob, jobs, ACTIVE, send, readBody, validUrl, local }) {
   const MAX_DURATION = parseInt(process.env.VI_MAX_DURATION || String(4 * 3600), 10); // saniye
   const MAX_WEB_JOBS = parseInt(process.env.VI_MAX_JOBS || (PUBLIC ? '3' : '6'), 10);
   const TTL_MS = 30 * 60 * 1000;                     // bitmiş dosyalar 30 dk sonra silinir
@@ -145,11 +128,14 @@ function createWeb({ PUBLIC, WORK_DIR, info, startJob, cancelJob, pauseJob, resu
       try {
         if (PUBLIC) await assertPublicTarget(url);
         const meta = await info(url, { cookies: serverCookies(), referer });
-        if (meta.isLive) return send(res, 422, { error: 'Canlı yayınlar desteklenmiyor.' }), true;
-        if (meta.duration > MAX_DURATION) return send(res, 422, { error: `Video çok uzun (en fazla ${Math.round(MAX_DURATION / 3600)} saat).` }), true;
+        if (meta.isLive) return send(res, 422, { error: 'Bu bir canlı yayın. Canlı yayınlar indirilemez; yayın bittikten sonra tekrar dene.' }), true;
+        if (meta.duration > MAX_DURATION) return send(res, 422, { error: `Bu video çok uzun (en fazla ${Math.round(MAX_DURATION / 3600)} saatlik videolar indirilebilir).` }), true;
         const { title, thumbnail, duration, uploader, options, mp3Size, profile } = meta;
         send(res, 200, { title, thumbnail, duration, uploader, options, mp3Size, profile, url });
-      } catch (e) { fail(res, 422, e); }
+      } catch (e) {
+        if (!e.friendly && local && isExtractorBreak(e.message)) local.onExtractorBreak(); // site değişmiş olabilir: indirme aracını arka planda güncelle
+        fail(res, 422, e);
+      }
       return true;
     }
 
@@ -162,7 +148,7 @@ function createWeb({ PUBLIC, WORK_DIR, info, startJob, cancelJob, pauseJob, resu
       const height = Number.isInteger(b.height) && b.height > 0 && b.height <= 4320 ? b.height : null;
       const profile = Number.isInteger(b.profile) && b.profile >= 0 && b.profile <= 2 ? b.profile : 0;
       const active = [...jobs.values()].filter((j) => j.web && ACTIVE.includes(j.status)).length;
-      if (active >= MAX_WEB_JOBS) return send(res, 429, { error: 'Sunucu şu an meşgul. Birkaç dakika sonra tekrar dene.' }), true;
+      if (PUBLIC && active >= MAX_WEB_JOBS) return send(res, 429, { error: 'Sunucu şu an meşgul. Birkaç dakika sonra tekrar dene.' }), true; // yerelde fazlası sıraya girer
       try {
         if (PUBLIC) await assertPublicTarget(url);
         // referer: akışı gerçekte isteyen sayfa · title: akış adreslerinde anlamlı dosya adı için sayfa başlığı
@@ -175,10 +161,16 @@ function createWeb({ PUBLIC, WORK_DIR, info, startJob, cancelJob, pauseJob, resu
     }
 
     // --- İptal / duraklat / devam et
-    const cm = p.match(/^\/api\/job\/([a-f0-9]{24})\/(cancel|pause|resume)$/);
+    const cm = p.match(/^\/api\/job\/([a-f0-9]{24})\/(cancel|pause|resume|reveal|open)$/);
     if (cm && req.method === 'POST') {
       const j = jobs.get(cm[1]);
       if (!j || !j.web) return send(res, 404, { error: 'İş bulunamadı.' }), true;
+      if (cm[2] === 'reveal' || cm[2] === 'open') {
+        // Dosyayı Explorer'da göster / varsayılan programla aç: yalnızca yerel kullanımda ve yalnızca bu işin kendi dosyası
+        if (PUBLIC || !j.local || !j.file) return send(res, 404, { error: 'Dosya bulunamadı.' }), true;
+        (cm[2] === 'reveal' ? local.revealFile : local.openFile)(j.file);
+        return send(res, 200, { ok: true }), true;
+      }
       const act = { cancel: cancelJob, pause: pauseJob, resume: resumeJob }[cm[2]];
       send(res, 200, { ok: act(cm[1]) });
       return true;
@@ -212,11 +204,12 @@ function createWeb({ PUBLIC, WORK_DIR, info, startJob, cancelJob, pauseJob, resu
 
       if (m[1] === 'job') {
         const { status, percent, bytes, speed } = job;
-        const out = { status, percent, bytes, speed, title: job.title };
-        if (status === 'error') Object.assign(out, explain(job.error));
+        const out = { status, percent, bytes, speed, title: job.title, local: !!job.local };
+        if (status === 'queued' && local) out.queuePos = local.queuePos(job.id);
+        if (status === 'error') { out.error = job.error; out.detail = job.detail; } // zaten anlaşılır Türkçe (friendly.js)
         if (status === 'done' && job.file) {
           out.filename = path.basename(job.file);
-          try { out.size = fs.statSync(job.file).size; } catch {}
+          out.size = job.size || 0;
         }
         send(res, 200, out);
         return true;
@@ -237,6 +230,52 @@ function createWeb({ PUBLIC, WORK_DIR, info, startJob, cancelJob, pauseJob, resu
       });
       fs.createReadStream(job.file).pipe(res);
       return true;
+    }
+
+    // --- Yalnızca yerel kullanım: ayarlar, geçmiş, tepsi bildirimi olayları, indirme aracı güncelleme
+    if (!PUBLIC && local) {
+      const D = local.data;
+      if (p === '/api/settings' && req.method === 'GET') {
+        send(res, 200, { ...D.getSettings(), defaultDir: D.DEFAULT_DIR, ytdlpVersion: await local.ytdlpVersion(), updating: local.isUpdating() });
+        return true;
+      }
+      if (p === '/api/settings' && req.method === 'POST') {
+        let b; try { b = await readBody(req); } catch { return send(res, 400, { error: 'Geçersiz istek.' }), true; }
+        const r = D.setSettings(b);
+        if (!r.ok) return send(res, 400, { error: r.error }), true;
+        local.pump(); // sınır yükseldiyse sıradakiler başlasın
+        send(res, 200, r.settings);
+        return true;
+      }
+      if (p === '/api/open-folder' && req.method === 'POST') { local.revealFile(null); send(res, 200, { ok: true }); return true; } // indirme klasörünü Explorer'da aç
+      if (p === '/api/history' && req.method === 'GET') { send(res, 200, D.listHistory()); return true; }
+      if (p === '/api/history/clear' && req.method === 'POST') { D.clearHistory(); send(res, 200, { ok: true }); return true; }
+      if (/^\/api\/history\/(delete|reveal|open)$/.test(p) && req.method === 'POST') {
+        let b; try { b = await readBody(req); } catch { return send(res, 400, { error: 'Geçersiz istek.' }), true; }
+        const h = D.findHistory(String(b.id || ''));
+        if (!h) return send(res, 404, { error: 'Kayıt bulunamadı.' }), true;
+        const act = p.split('/').pop();
+        if (act === 'delete') D.removeHistory(h.id);
+        else if (!h.file || !fs.existsSync(h.file)) return send(res, 404, { error: 'Dosya artık yerinde değil (silinmiş ya da taşınmış olabilir).' }), true;
+        else (act === 'reveal' ? local.revealFile : local.openFile)(h.file);
+        send(res, 200, { ok: true });
+        return true;
+      }
+      if (p === '/api/events' && req.method === 'GET') {
+        const after = u.searchParams.get('after');
+        send(res, 200, { last: D.lastSeq(), notify: D.getSettings().notify, events: after === null ? [] : D.eventsAfter(parseInt(after, 10) || 0) });
+        return true;
+      }
+      if (p === '/api/ytdlp' && req.method === 'GET') {
+        send(res, 200, { version: await local.ytdlpVersion(), updating: local.isUpdating(), lastCheck: D.getSettings().lastYtdlpCheck });
+        return true;
+      }
+      if (p === '/api/ytdlp/update' && req.method === 'POST') {
+        const r = await local.updateYtdlp({ force: true });
+        send(res, 200, r.busy ? { busy: true, message: 'Güncelleme zaten sürüyor, biraz bekle.' }
+          : { ...r, message: r.updated ? 'İndirme aracı güncellendi: ' + r.after : r.ok ? 'İndirme aracı zaten güncel (' + r.after + ').' : 'Güncelleme yapılamadı. İnternet bağlantını kontrol edip tekrar dene.' });
+        return true;
+      }
     }
 
     send(res, 404, { error: 'yok' });

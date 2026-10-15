@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "incognito": "spanning",
   "name": "VideoIndir",
-  "version": "1.0.9",
+  "version": "1.0.10",
   "description": "Açık sekmedeki videoyu tek tıkla istediğin kalitede veya MP3 olarak indir.",
   "action": {
     "default_title": "Videoyu indir",
@@ -26,7 +26,7 @@
       "suggested_key": {
         "default": "Alt+Shift+D"
       },
-      "description": "VideoIndir'i aÃ§"
+      "description": "VideoIndir'i aç"
     }
   },
   "content_scripts": [
@@ -60,7 +60,8 @@
     "webRequest",
     "storage",
     "cookies",
-    "contextMenus"
+    "contextMenus",
+    "clipboardRead"
   ],
   "host_permissions": [
     "http://127.0.0.1:9696/*",

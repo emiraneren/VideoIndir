@@ -15,39 +15,103 @@
       <p>Bağlantıyı yapıştır, kaliteyi ya da MP3'ü seç, indir.</p>
     </header>
 
-    <form id="form" autocomplete="off">
-      <label class="sr" for="url">Video bağlantısı</label>
-      <input id="url" name="url" type="url" inputmode="url" placeholder="https://…  (YouTube, Instagram, Facebook, TikTok, X…)" required autofocus spellcheck="false">
-      <button id="paste" type="button" class="ghost">Yapıştır</button>
-      <button id="go" type="submit" class="primary">Çöz</button>
-    </form>
+    <!-- Sekmeler yalnızca yerel kullanımda görünür (geçmiş/ayarlar herkese açık sitede yok) -->
+    <nav id="tabs" class="tabs" hidden aria-label="Bölümler">
+      <button type="button" class="tab on" data-view="download">İndir</button>
+      <button type="button" class="tab" data-view="history">Geçmiş</button>
+      <button type="button" class="tab" data-view="settings">Ayarlar</button>
+    </nav>
 
-    <div id="status" class="status" role="status" aria-live="polite"></div>
-    <button id="sniffBtn" type="button" class="link">Çözülmüyor mu? Sayfayı açıp videoyu bul</button>
+    <!-- ================= İNDİR ================= -->
+    <div id="view-download" class="view">
+      <form id="form" autocomplete="off">
+        <label class="sr" for="url">Video bağlantısı</label>
+        <input id="url" name="url" type="url" inputmode="url" placeholder="https://…  (YouTube, Instagram, Facebook, TikTok, X…)" required autofocus spellcheck="false">
+        <button id="paste" type="button" class="ghost">Yapıştır</button>
+        <button id="go" type="submit" class="primary">Çöz</button>
+      </form>
 
-    <section id="sniff" class="card" hidden>
-      <h3>Sayfadan yakalanan kaynaklar</h3>
-      <p id="sniffText" class="hint-text"></p>
-      <p class="hint-text">Açılan pencere ayrı bir profil kullanır; normal tarayıcındaki giriş orada görünmez. Siteye <strong>bir kez</strong> giriş yapman yeter, sonraki açılışlarda hatırlanır.</p>
-      <div id="sniffList" class="sources"></div>
-      <button id="sniffStop" type="button" class="ghost small">Pencereyi kapat</button>
-    </section>
+      <div id="status" class="status" role="status" aria-live="polite"></div>
+      <button id="sniffBtn" type="button" class="link">Çözülmüyor mu? Sayfayı açıp videoyu bul</button>
 
-    <section id="result" class="card" hidden>
-      <div class="head">
-        <img id="thumb" alt="" referrerpolicy="no-referrer">
-        <div class="meta">
-          <h2 id="title"></h2>
-          <p id="sub"></p>
+      <section id="sniff" class="card" hidden>
+        <h3>Sayfadan yakalanan kaynaklar</h3>
+        <p id="sniffText" class="hint-text"></p>
+        <p class="hint-text">Açılan pencere ayrı bir profil kullanır; normal tarayıcındaki giriş orada görünmez. Siteye <strong>bir kez</strong> giriş yapman yeter, sonraki açılışlarda hatırlanır.</p>
+        <div id="sniffList" class="sources"></div>
+        <button id="sniffStop" type="button" class="ghost small">Pencereyi kapat</button>
+      </section>
+
+      <section id="result" class="card" hidden>
+        <div class="head">
+          <img id="thumb" alt="" referrerpolicy="no-referrer">
+          <div class="meta">
+            <h2 id="title"></h2>
+            <p id="sub"></p>
+          </div>
         </div>
-      </div>
-      <h3>Video <span class="hint">(MP4)</span></h3>
-      <div id="qualities" class="grid"></div>
-      <h3>Sadece ses</h3>
-      <div id="audio" class="grid"></div>
-    </section>
+        <h3>Video <span class="hint">(MP4)</span></h3>
+        <div id="qualities" class="grid"></div>
+        <h3>Sadece ses</h3>
+        <div id="audio" class="grid"></div>
+      </section>
 
-    <section id="jobs" aria-label="İndirmeler"></section>
+      <section id="jobs" aria-label="İndirmeler"></section>
+    </div>
+
+    <!-- ================= GEÇMİŞ ================= -->
+    <div id="view-history" class="view" hidden>
+      <div class="row-between">
+        <h2 class="section-title">İndirme geçmişi</h2>
+        <button id="historyClear" type="button" class="ghost small">Geçmişi temizle</button>
+      </div>
+      <p class="hint-text">Geçmişten silmek dosyayı silmez, yalnızca bu listeden kaldırır.</p>
+      <div id="historyList" class="history"></div>
+      <p id="historyEmpty" class="empty" hidden>Henüz indirme yok. İndirdiğin videolar burada görünür.</p>
+    </div>
+
+    <!-- ================= AYARLAR ================= -->
+    <div id="view-settings" class="view" hidden>
+      <h2 class="section-title">Ayarlar</h2>
+
+      <div class="card setting">
+        <label for="setDir">İndirme klasörü</label>
+        <div class="dir-row">
+          <input id="setDir" type="text" spellcheck="false" placeholder="C:\Kullanıcılar\...\Videolar">
+          <button id="pickDir" type="button" class="ghost small" hidden>Klasör seç…</button>
+        </div>
+        <div class="actions-row">
+          <button id="saveDir" type="button" class="ghost small">Kaydet</button>
+          <button id="openDir" type="button" class="ghost small">Klasörü aç</button>
+          <button id="defaultDir" type="button" class="ghost small">Varsayılana dön</button>
+        </div>
+        <p class="hint-text">Yeni indirmeler bu klasöre kaydedilir. Eski dosyalar yerinde kalır.</p>
+      </div>
+
+      <div class="card setting">
+        <label for="setParallel">Aynı anda en fazla kaç indirme</label>
+        <select id="setParallel">
+          <option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option>
+        </select>
+        <p class="hint-text">Fazlası sırada bekler, önceki indirmeler bitince kendiliğinden başlar.</p>
+      </div>
+
+      <div class="card setting">
+        <label class="check"><input id="setNotify" type="checkbox"> İndirme bitince bildirim göster</label>
+      </div>
+
+      <div class="card setting">
+        <label>İndirme aracı</label>
+        <p class="hint-text">Siteler sık değişir; araç eskiyince "video çözülemedi" hatası çıkar. Güncel tutmak için günde bir kendiliğinden güncellenir.</p>
+        <p id="ytdlpInfo" class="hint-text">Sürüm: …</p>
+        <div class="actions-row">
+          <button id="ytdlpUpdate" type="button" class="ghost small">Şimdi güncelle</button>
+        </div>
+        <label class="check"><input id="setAutoUpdate" type="checkbox"> Kendiliğinden güncelle</label>
+      </div>
+
+      <div id="settingsStatus" class="status" role="status" aria-live="polite"></div>
+    </div>
 
     <footer>
       <p>yt-dlp'nin desteklediği 1000'den fazla siteyle çalışır. Yalnızca indirme hakkına sahip olduğun içerikleri indir.</p>

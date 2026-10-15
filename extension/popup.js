@@ -469,7 +469,8 @@ function setJobControls(c, j) {
     b.addEventListener('click', () => { b.disabled = true; fn().catch(() => {}); });
     return b;
   };
-  if (mode === 'paused') c.ctl.appendChild(mini('Devam et', 'resume', () => api('/resume', { id: j.id })));
+  if (mode === 'queued') c.ctl.appendChild(mini('İptal', 'cancel', () => api('/cancel', { id: j.id })));
+  else if (mode === 'paused') c.ctl.appendChild(mini('Devam et', 'resume', () => api('/resume', { id: j.id })));
   else if (['starting', 'downloading'].includes(mode)) c.ctl.appendChild(mini('Duraklat', 'pause', () => api('/pause', { id: j.id })));
   if (['starting', 'downloading', 'processing', 'paused'].includes(mode)) c.ctl.appendChild(mini('İptal', 'cancel', () => api('/cancel', { id: j.id })));
   if (mode === 'done') {
@@ -490,11 +491,12 @@ async function refreshJobs() {
     c.name.textContent = j.title || j.url;
     c.fill.style.width = (j.status === 'error' ? 0 : j.percent) + '%';
     c.state.textContent = {
+      queued: 'Sırada bekliyor' + (j.queuePos ? ' (' + j.queuePos + '. sıra)' : '') + '…',
       starting: 'Başlıyor…',
       downloading: ['İndiriliyor %' + Math.floor(j.percent), fmtBytes(j.bytes), j.speed && fmtBytes(j.speed) + '/s'].filter(Boolean).join(' · '),
       paused: ['Duraklatıldı %' + Math.floor(j.percent), fmtBytes(j.bytes)].filter(Boolean).join(' · '),
       processing: j.mode === 'mp3' ? 'MP3’e çevriliyor…' : 'MP4’e birleştiriliyor / çevriliyor…',
-      done: 'Tamamlandı', cancelled: 'İptal edildi', error: 'Hata: ' + (j.error || ''),
+      done: 'Tamamlandı', cancelled: 'İptal edildi', error: j.error || 'İndirilemedi.',
     }[j.status];
     setJobControls(c, j);
   }
@@ -580,6 +582,14 @@ $('manualGo').addEventListener('click', async () => {
   try { await loadSource({ url, referer: tab.url, title: tab.title }); }
   catch (e) { showMsg('Bu adresten video alınamadı: ' + e.message, true); }
 });
+$('manualPaste').addEventListener('click', async () => {
+  try {
+    const t = (await navigator.clipboard.readText()).trim();
+    if (!t) return showMsg('Panoda adres yok. Önce bir bağlantıyı kopyala.', true);
+    $('manualUrl').value = t;
+    $('manualGo').click();
+  } catch { showMsg('Panoya erişilemedi. Adresi kutuya Ctrl+V ile yapıştır.', true); }
+});
 $('rescan').addEventListener('click', detect);
 
 $('record').addEventListener('click', async () => {
@@ -621,6 +631,28 @@ $('pin').addEventListener('click', async () => {
   window.close();
 });
 
+const pingApp = () => api('/ping', null, 2000).catch(() => null);
+async function waitFor(fn, ms) {
+  const end = Date.now() + ms;
+  while (Date.now() < end) { const v = await fn(); if (v) return v; await new Promise((r) => setTimeout(r, 1000)); }
+  return null;
+}
+
+$('openApp').addEventListener('click', async () => {
+  const b = $('openApp');
+  b.disabled = true;
+  showMsg('Uygulama açılıyor…');
+  // videoindir: bağlantısını gizli bir çerçevede açmak tarayıcıyı bozmadan uygulamayı başlatır
+  const f = document.createElement('iframe');
+  f.style.display = 'none';
+  f.src = 'videoindir://start';
+  document.body.appendChild(f);
+  const p = await waitFor(pingApp, 25000);
+  b.disabled = false;
+  if (!p) return showMsg('Uygulama açılmadı. Masaüstündeki VideoIndir simgesine çift tıkla, sonra bu pencereyi yeniden aç.', true);
+  location.reload();
+});
+
 (async () => {
   if (detached) {
     $('pin').classList.add('hidden');
@@ -630,10 +662,18 @@ $('pin').addEventListener('click', async () => {
   }
   if (!tab || !isHttp(tab.url)) return showMsg('Bu sayfada indirilecek video yok. Bir video sayfası aç.', true);
 
-  try { var ping = await api('/ping'); } catch {
-    return showMsg('Yardımcı program çalışmıyor. VideoIndir klasöründeki Baslat.bat dosyasını çalıştır.', true);
+  let ping = await pingApp();
+  if (!ping) {
+    // Uygulama kapalı: tek tıkla açılır (videoindir: bağlantısı exe'yi sessizce başlatır)
+    showMsg('VideoIndir uygulaması kapalı. İndirmek için önce uygulamayı aç.', true);
+    $('openApp').classList.remove('hidden');
+    return;
   }
-  if (!ping.toolsReady) return showMsg('İlk kurulum yapılmamış. VideoIndir klasöründeki Kur.bat dosyasını çalıştır.', true);
+  if (!ping.toolsReady) {
+    showMsg('VideoIndir ilk kurulumunu yapıyor, bir dakika bekle…');
+    ping = await waitFor(async () => { const p = await pingApp(); return p && p.toolsReady ? p : null; }, 180000);
+    if (!ping) return showMsg('İlk kurulum bitmedi. VideoIndir uygulamasını aç ve kurulumun bitmesini bekle, sonra bu pencereyi yeniden aç.', true);
+  }
 
   refreshJobs();
   setInterval(refreshJobs, 1000);
