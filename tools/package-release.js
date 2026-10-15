@@ -28,7 +28,7 @@ copy('Guncelle.bat', 'Guncelle.bat');
 copy('Guncelle.ps1', 'Guncelle.ps1');
 copy('README.md', 'README.md');
 copy('extension', 'extension');
-for (const f of ['server.js', 'web.js', 'sniff.js', 'mp4fix.js', 'setup.js', 'web']) copy(path.join('helper', f), path.join('helper', f));
+for (const f of ['server.js', 'web.js', 'sniff.js', 'mp4fix.js', 'setup.js', 'data.js', 'friendly.js', 'web']) copy(path.join('helper', f), path.join('helper', f));
 
 // Yerleşik Node (resmi node.exe): arkadaşların ayrıca Node.js kurması gerekmez
 fs.copyFileSync(process.execPath, path.join(stage, 'runtime', 'node.exe'));
