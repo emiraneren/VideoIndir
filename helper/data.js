@@ -17,6 +17,8 @@ const DEFAULTS = {
   autoUpdateYtdlp: true,   // indirme aracı (yt-dlp) günde bir kendiliğinden güncellensin
   notify: true,            // indirme bitince tepsi bildirimi
   lastYtdlpCheck: 0,
+  checkAppUpdate: true,    // yeni VideoIndir sürümü çıkınca tepsiden haber ver
+  lastNotifiedVersion: '', // hangi sürüm için haber verildi (aynı sürüm için tekrar etme)
 };
 
 function readJson(file, fallback) {
@@ -38,7 +40,8 @@ let settings = { ...DEFAULTS };
   const s = readJson(SETTINGS_FILE, {});
   if (typeof s.downloadDir === 'string' && path.isAbsolute(s.downloadDir)) settings.downloadDir = s.downloadDir;
   if (Number.isInteger(s.maxParallel)) settings.maxParallel = Math.min(6, Math.max(1, s.maxParallel));
-  for (const k of ['autoUpdateYtdlp', 'notify']) if (typeof s[k] === 'boolean') settings[k] = s[k];
+  for (const k of ['autoUpdateYtdlp', 'notify', 'checkAppUpdate']) if (typeof s[k] === 'boolean') settings[k] = s[k];
+  if (typeof s.lastNotifiedVersion === 'string') settings.lastNotifiedVersion = s.lastNotifiedVersion;
   if (Number.isFinite(s.lastYtdlpCheck)) settings.lastYtdlpCheck = s.lastYtdlpCheck;
 })();
 
@@ -63,7 +66,8 @@ function setSettings(patch) {
     if (!Number.isInteger(n) || n < 1 || n > 6) return { ok: false, error: 'Aynı anda indirme sayısı 1 ile 6 arasında olmalı.' };
     next.maxParallel = n;
   }
-  for (const k of ['autoUpdateYtdlp', 'notify']) if (typeof patch[k] === 'boolean') next[k] = patch[k];
+  for (const k of ['autoUpdateYtdlp', 'notify', 'checkAppUpdate']) if (typeof patch[k] === 'boolean') next[k] = patch[k];
+  if (typeof patch.lastNotifiedVersion === 'string') next.lastNotifiedVersion = patch.lastNotifiedVersion.slice(0, 32);
   if (Number.isFinite(patch.lastYtdlpCheck)) next.lastYtdlpCheck = patch.lastYtdlpCheck;
   settings = next;
   writeJson(SETTINGS_FILE, settings);

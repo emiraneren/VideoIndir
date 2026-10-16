@@ -48,6 +48,7 @@ namespace VideoIndir
         static EventWaitHandle showEvent;           // ikinci başlatma bu olayı tetikler → pencere öne gelir
         static System.Windows.Forms.Timer eventTimer;
         static int eventSeq = -1;                   // yardımcıdan okunan son olay numarası (-1: henüz başlangıç noktası alınmadı)
+        static bool balloonUpdate;                  // bildirim "yeni sürüm var" ise tıklanınca güncelleme sayfası açılır
         static string balloonFile;                  // bildirime tıklanınca klasörde gösterilecek dosya
 
         internal static bool SelfTestMode;   // WebView2 testinde başarısızlık yedek pencereyi açmasın
@@ -175,8 +176,11 @@ namespace VideoIndir
                 tray.BalloonTipClicked += delegate
                 {
                     string f = balloonFile;
+                    bool upd = balloonUpdate;
                     balloonFile = null;
-                    if (f != null && File.Exists(f)) RevealInExplorer(f);
+                    balloonUpdate = false;
+                    if (upd) OpenAppQuery("view=settings&check=1");
+                    else if (f != null && File.Exists(f)) RevealInExplorer(f);
                 };
 
                 Application.Run();
@@ -197,6 +201,7 @@ namespace VideoIndir
             string exeDir = Path.GetDirectoryName(Application.ExecutablePath);
             string[] candidates =
             {
+                Path.Combine(exeDir, @"dosyalar\helper"),   // paket düzeni: exe üstte, geri kalanı "dosyalar" altında
                 Path.Combine(exeDir, "helper"),
                 Path.Combine(exeDir, @"VideoIndir\helper"),
                 Path.Combine(exeDir, @"Apps\VideoIndir\helper"),
@@ -402,19 +407,8 @@ namespace VideoIndir
             });
             menu.Items.Add(new ToolStripSeparator());
 
-            menu.Items.Add("Güncellemeleri denetle…", null, delegate
-            {
-                // Güncelleyici (Guncelle.bat) GitHub'daki son yamayı denetler, farklıysa indirip uygular; uygulamayı kapatıp yeniden açar
-                string bat = Path.Combine(rootDir, "Guncelle.bat");
-                if (!File.Exists(bat))
-                {
-                    MessageBox.Show("Guncelle.bat bulunamadı. Son sürümü GitHub'dan indir:\nhttps://github.com/emiraneren/VideoIndir/releases/latest", "VideoIndir", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                    return;
-                }
-                ProcessStartInfo upd = new ProcessStartInfo(bat);
-                upd.WorkingDirectory = rootDir;
-                Process.Start(upd);
-            });
+            // Uygulama penceresinde Ayarlar'ı açar ve GitHub'daki son sürümü denetler; yenilikleri gösterir, istenirse günceller
+            menu.Items.Add("Güncellemeleri denetle…", null, delegate { OpenAppQuery("view=settings&check=1"); });
 
             ToolStripMenuItem install = new ToolStripMenuItem("Tarayıcı eklentisi (isteğe bağlı)");
             List<BrowserInfo> browsers = FindBrowsers();
@@ -460,6 +454,13 @@ namespace VideoIndir
 
         // Uygulamayı kendi penceresinde açar (tarayıcı çubuğu yok, hangi tarayıcının kurulu olduğundan bağımsız).
         // Pencere zaten açıksa öne getirir ve yeni bağlantıyla yeniler.
+        static void OpenAppQuery(string query)
+        {
+            string target = SiteUrl + "?" + query;
+            try { ShowAppWindow(target); }
+            catch (Exception) { FallbackOpen(target); }
+        }
+
         static void OpenApp(string videoUrl)
         {
             string target = SiteUrl + (videoUrl != null ? "?url=" + Uri.EscapeDataString(videoUrl) : "");
@@ -582,13 +583,22 @@ namespace VideoIndir
                     string title = e.ContainsKey("title") ? e["title"] as string : null;
                     if (string.IsNullOrEmpty(title)) title = "Video";
                     if (title.Length > 80) title = title.Substring(0, 80) + "…";
-                    if (type == "done")
+                    if (type == "update")
                     {
+                        balloonFile = null;
+                        balloonUpdate = true;
+                        string ver = e.ContainsKey("version") ? e["version"] as string : "";
+                        tray.ShowBalloonTip(8000, "VideoIndir'in yeni sürümü var", "Sürüm " + ver + " çıktı. Yenilikleri görmek ve güncellemek için tıkla.", ToolTipIcon.Info);
+                    }
+                    else if (type == "done")
+                    {
+                        balloonUpdate = false;
                         balloonFile = e.ContainsKey("file") ? e["file"] as string : null;
                         tray.ShowBalloonTip(5000, "İndirme bitti", title + (balloonFile != null ? "\nKlasörde görmek için tıkla." : ""), ToolTipIcon.Info);
                     }
                     else if (type == "error")
                     {
+                        balloonUpdate = false;
                         balloonFile = null;
                         string msg = e.ContainsKey("message") ? e["message"] as string : "İndirilemedi.";
                         tray.ShowBalloonTip(6000, "İndirilemedi", title + "\n" + msg, ToolTipIcon.Warning);

@@ -236,7 +236,7 @@ function createWeb({ PUBLIC, WORK_DIR, info, startJob, cancelJob, pauseJob, resu
     if (!PUBLIC && local) {
       const D = local.data;
       if (p === '/api/settings' && req.method === 'GET') {
-        send(res, 200, { ...D.getSettings(), defaultDir: D.DEFAULT_DIR, ytdlpVersion: await local.ytdlpVersion(), updating: local.isUpdating() });
+        send(res, 200, { ...D.getSettings(), defaultDir: D.DEFAULT_DIR, appVersion: local.updater.currentVersion(), ytdlpVersion: await local.ytdlpVersion(), updating: local.isUpdating() });
         return true;
       }
       if (p === '/api/settings' && req.method === 'POST') {
@@ -264,6 +264,18 @@ function createWeb({ PUBLIC, WORK_DIR, info, startJob, cancelJob, pauseJob, resu
       if (p === '/api/events' && req.method === 'GET') {
         const after = u.searchParams.get('after');
         send(res, 200, { last: D.lastSeq(), notify: D.getSettings().notify, events: after === null ? [] : D.eventsAfter(parseInt(after, 10) || 0) });
+        return true;
+      }
+      if (p === '/api/update/check' && req.method === 'GET') {
+        try { send(res, 200, await local.updater.check()); }
+        catch (e) { send(res, 502, { error: e.message }); }
+        return true;
+      }
+      if (p === '/api/update/apply' && req.method === 'POST') {
+        let b = {}; try { b = await readBody(req); } catch {}
+        if (!b.force && local.runningCount() > 0) return send(res, 409, { busy: true, error: 'Şu anda indirme sürüyor. Güncellenirse yarım kalan indirmeler iptal olur.' }), true;
+        const r = local.updater.apply();
+        send(res, r.ok ? 200 : 400, r);
         return true;
       }
       if (p === '/api/ytdlp' && req.method === 'GET') {

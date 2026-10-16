@@ -438,7 +438,13 @@ function showView(name) {
 }
 document.querySelectorAll('#tabs .tab').forEach((t) => t.addEventListener('click', () => showView(t.dataset.view)));
 (async function detectLocal() {
-  try { await request('/api/settings'); $('tabs').hidden = false; } catch {}
+  try { await request('/api/settings'); $('tabs').hidden = false; } catch { return; }
+  // Tepsi menüsü doğrudan Ayarlar'ı (ve güncelleme denetimini) açabilir: ?view=settings&check=1
+  const q = new URLSearchParams(location.search);
+  if (q.get('view') === 'settings') {
+    showView('settings');
+    if (q.get('check')) checkAppUpdate();
+  }
 })();
 
 const fmtDate = (ms) => {
@@ -496,6 +502,8 @@ async function loadSettings() {
     $('setParallel').value = String(s.maxParallel);
     $('setNotify').checked = s.notify;
     $('setAutoUpdate').checked = s.autoUpdateYtdlp;
+    $('appVersionInfo').textContent = 'Kurulu sürüm: ' + (s.appVersion || 'bilinmiyor');
+    $('setCheckApp').checked = s.checkAppUpdate;
     $('ytdlpInfo').textContent = 'Sürüm: ' + (s.ytdlpVersion || 'bilinmiyor') + (s.lastYtdlpCheck ? ' · son denetim: ' + fmtDate(s.lastYtdlpCheck) : '');
     $('pickDir').hidden = !(window.chrome && window.chrome.webview); // klasör seçme penceresi yalnızca uygulama penceresinde var
   } catch (e) { settingsMsg(e.message, true); }
@@ -509,6 +517,57 @@ $('defaultDir').addEventListener('click', () => { if (settingsLoaded) saveSettin
 $('openDir').addEventListener('click', () => request('/api/open-folder', {}).catch(() => {}));
 $('setParallel').addEventListener('change', (e) => saveSettings({ maxParallel: parseInt(e.target.value, 10) }, 'Kaydedildi ✓ Fazla indirmeler sırada bekler.'));
 $('setNotify').addEventListener('change', (e) => saveSettings({ notify: e.target.checked }));
+$('setCheckApp').addEventListener('change', (e) => saveSettings({ checkAppUpdate: e.target.checked }));
+
+// --- VideoIndir'in kendi güncellemesi: GitHub'daki son sürümü denetle, yenilikleri özetle, istersen uygula ---
+async function checkAppUpdate() {
+  const box = $('updateResult'), btn = $('appCheck');
+  btn.disabled = true;
+  box.hidden = false;
+  box.className = 'update-result';
+  box.textContent = 'GitHub denetleniyor…';
+  try {
+    const r = await request('/api/update/check');
+    box.textContent = '';
+    const line = (text, cls) => { const p = document.createElement('p'); p.className = cls || ''; p.textContent = text; box.appendChild(p); return p; };
+    if (!r.available) { box.classList.add('ok'); line('Zaten güncelsin ✓ (sürüm ' + r.current + ')'); return; }
+    line('Yeni sürüm var: ' + r.latest + '  (şu an: ' + r.current + ')', 'uhead');
+    r.releases.forEach((rel) => {
+      const h = document.createElement('p');
+      h.className = 'uver';
+      h.textContent = 'Sürüm ' + rel.version + ' ile gelenler:';
+      box.appendChild(h);
+      const ul = document.createElement('ul');
+      (rel.notes.length ? rel.notes : ['Küçük düzeltmeler ve iyileştirmeler.']).forEach((n) => { const li = document.createElement('li'); li.textContent = n; ul.appendChild(li); });
+      box.appendChild(ul);
+    });
+    if (r.dev) { line('Bu bir geliştirme klasörü; kendini güncellemez.', 'muted'); return; }
+    if (!r.canPatch) {
+      const a = document.createElement('a'); a.href = r.url; a.target = '_blank'; a.rel = 'noopener'; a.textContent = 'Yeni sürümü GitHub üzerinden indir';
+      box.appendChild(a);
+      return;
+    }
+    const go = document.createElement('button');
+    go.type = 'button'; go.className = 'primary small'; go.textContent = 'Güncelle ve yeniden başlat';
+    go.addEventListener('click', () => applyAppUpdate(go, false));
+    box.appendChild(go);
+  } catch (e) { box.classList.add('error'); box.textContent = e.message; }
+  finally { btn.disabled = false; }
+}
+async function applyAppUpdate(btn, force) {
+  btn.disabled = true;
+  try {
+    await request('/api/update/apply', { force });
+    btn.textContent = 'Güncelleniyor… uygulama birkaç saniye içinde kapanıp yeniden açılacak.';
+  } catch (e) {
+    btn.disabled = false;
+    if (e.status === 409 || /indirme sürüyor/.test(e.message)) {
+      if (confirm(e.message + ' Yine de güncellensin mi?')) applyAppUpdate(btn, true);
+    } else settingsMsg(e.message, true);
+  }
+}
+$('appCheck').addEventListener('click', checkAppUpdate);
+
 $('setAutoUpdate').addEventListener('change', (e) => saveSettings({ autoUpdateYtdlp: e.target.checked }));
 $('ytdlpUpdate').addEventListener('click', async () => {
   const b = $('ytdlpUpdate');

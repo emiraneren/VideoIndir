@@ -27,3 +27,6 @@ helper/sniff-profile*/
 /Microsoft.Web.WebView2.Core.dll
 /Microsoft.Web.WebView2.WinForms.dll
 /WebView2Loader.dll
+
+# Eski, artık kullanılmayan dosyalar
+_eski/

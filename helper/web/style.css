@@ -121,6 +121,18 @@ button.pause:hover, button.resume:hover { border-color: var(--accent); }
 .check { display: flex; align-items: center; gap: 8px; font-weight: 400 !important; margin-top: 10px; }
 .check input { width: 18px; height: 18px; accent-color: var(--accent); }
 
+/* güncelleme sonucu */
+.update-result { margin-top: 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
+.update-result p { margin: 0 0 6px; }
+.update-result .uhead { font-weight: 600; }
+.update-result .uver { margin-top: 10px; color: var(--muted); font-size: .85rem; }
+.update-result ul { margin: 4px 0 10px; padding-left: 20px; }
+.update-result li { margin: 3px 0; }
+.update-result.ok { color: var(--ok, #16a34a); }
+.update-result.error { color: var(--accent); }
+.update-result .muted { color: var(--muted); font-size: .85rem; }
+.update-result a { color: var(--accent); }
+
 /* iş kartı: sırada, teknik ayrıntı */
 .job.queued .bar > i { background: var(--muted); }
 .job.queued .state { color: var(--muted); }

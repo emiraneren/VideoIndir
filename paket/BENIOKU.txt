@@ -1,0 +1,82 @@
+﻿VIDEOINDIR
+==========
+YouTube, Instagram, Facebook, TikTok, X ve 1000'den fazla sitedeki videoyu
+istediğin kalitede (MP4) ya da MP3 olarak indirir. Windows için.
+
+
+1) BAŞLAMAK
+-----------
+ - Bu zip dosyasını bir klasöre çıkar (masaüstü olabilir).
+ - VideoIndir.exe'ye çift tıkla. Hepsi bu.
+ - İlk açılışta iki yardımcı araç (yt-dlp ve ffmpeg, ~180 MB) bir kez indirilir.
+   İlerleme çubuğu görünür. Sonra uygulama penceresi açılır.
+
+ Windows "Bilgisayarınızı korudu" derse: "Ek bilgi" > "Yine de çalıştır".
+ (Uygulama imzalı değil, bu uyarı normaldir.)
+
+ Pencereyi kapatırsan uygulama sağ alttaki tepsi simgesinde çalışmaya devam eder.
+ Tamamen kapatmak için: simgeye sağ tık > Çıkış.
+
+
+2) KULLANIM
+-----------
+ - Video bağlantısını yapıştır ("Yapıştır" düğmesi var), kaliteyi ya da MP3'ü seç.
+ - Dosya "İndirilenler\VideoIndir" klasörüne kaydedilir; bitince bildirim gelir.
+ - Tarayıcıda video izlerken Ctrl+Alt+D'ye basarsan bağlantı kendiliğinden gelir.
+ - Üst sekmeler: İndir / Geçmiş / Ayarlar (klasör, aynı anda kaç indirme, bildirim).
+ - İndirmeyi Duraklat ya da İptal edebilirsin.
+
+
+3) KALICI KURULUM (isteğe bağlı)
+--------------------------------
+ - Kur.bat     : Programı kalıcı bir yere kopyalar, Masaüstü ve Başlat menüsü
+                 kısayolu koyar. Sonra zip'ten çıkardığın klasörü silebilirsin.
+ - Kaldir.bat  : Programı tamamen kaldırır (uninstall). İndirdiğin videolara
+                 dokunmaz. Windows Ayarlar > Uygulamalar listesinden de kaldırılabilir.
+
+
+4) GÜNCELLEME
+-------------
+ Uygulamada: Ayarlar sekmesi > "Güncellemeleri denetle".
+ GitHub'daki son sürüme bakar, yeni neler geldiğini yazar, istersen tek tıkla
+ günceller ve uygulamayı yeniden açar. Tepsi simgesine sağ tık >
+ "Güncellemeleri denetle" de aynı yere gider. Yeni sürüm çıkınca ayrıca bildirim gelir.
+
+
+5) TARAYICI EKLENTİSİ (isteğe bağlı)
+------------------------------------
+ Gerekli değil, uygulama tek başına çalışır. Eklenti şunları kolaylaştırır:
+ videoyu tarayıcıda izlerken simgeye tıklayıp indirmeni sağlar ve bağlantısı
+ gizli/zor sitelerde videoyu kendisi bulur. VideoIndir.exe AÇIKKEN çalışır.
+
+ Kurulum (Chrome, Opera, Brave, Edge):
+   1. Tepsi simgesine sağ tık > "Tarayıcı eklentisi" > tarayıcını seç.
+      (Eklentiler sayfası ve klasör açılır.)
+   2. Açılan eklentiler sayfasında sağ üstten "Geliştirici modu"nu aç.
+   3. "Paketlenmemiş öğe yükle"ye tıkla, açılan klasörü ("extension") seç.
+   4. Simgeyi araç çubuğuna sabitle.
+
+ Dikkat: Eklenti o klasörden çalışır. Kur.bat ile kurduysan eklentiyi KURULU
+ klasörden yükle (tepsi menüsü doğru klasörü açar). Uygulamayı güncelledikten
+ sonra eklentiler sayfasındaki "yenile" düğmesine bas.
+
+ Eklenti "uygulama kapalı" derse: eklentideki "Uygulamayı aç" düğmesine bas.
+
+
+6) SIK SORUNLAR
+---------------
+ - "Video çözülemedi" (Facebook/Instagram): video giriş istiyor olabilir.
+   Uygulamada "Çözülmüyor mu? Sayfayı açıp videoyu bul"a bas, açılan pencerede
+   siteye bir kez giriş yap; sonra hatırlanır.
+ - Özel / kaldırılmış video indirilemez.
+ - YouTube "bot" diyorsa biraz bekleyip tekrar dene.
+ - Antivirüs uyarı verirse klasörü güvenli listeye ekle (uygulama imzasız).
+
+
+YASAL NOT
+---------
+Yalnızca indirme hakkına sahip olduğun içeriklerde kullan. Platformların kullanım
+koşullarına ve telif haklarına uymak senin sorumluluğundadır. İndirme işini yt-dlp
+ve ffmpeg yapar.
+
+Proje: https://github.com/emiraneren/VideoIndir

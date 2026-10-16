@@ -9,6 +9,7 @@ const { spawn } = require('child_process');
 const { ensureMp4 } = require('./mp4fix');
 const { createWeb } = require('./web');
 const data = require('./data');
+const updater = require('./updater');
 const { explain, isExtractorBreak } = require('./friendly');
 
 // Ortam değişkenleri: eklenti için varsayılanlar (yerel, 9696) değişmez. Site herkese açılacaksa VI_PUBLIC=1 kullanılır.
@@ -413,6 +414,20 @@ function autoUpdateTick() {
   if (PUBLIC || !s.autoUpdateYtdlp || Date.now() - s.lastYtdlpCheck < 24 * 3600e3) return;
   updateYtdlp().catch(() => {});
 }
+// Uygulamanın kendi güncellemesi: yeni sürüm çıkınca bir kez tepsi bildirimi (Ayarlar'dan kapatılabilir)
+async function appUpdateTick() {
+  const s = data.getSettings();
+  if (PUBLIC || !s.checkAppUpdate || updater.isDevFolder()) return;
+  try {
+    const r = await updater.check();
+    if (r.available && r.latest !== s.lastNotifiedVersion) {
+      data.setSettings({ lastNotifiedVersion: r.latest });
+      data.pushEvent({ type: 'update', title: 'VideoIndir ' + r.latest, version: r.latest });
+    }
+  } catch {}
+}
+setTimeout(appUpdateTick, 60000).unref();
+setInterval(appUpdateTick, 12 * 3600e3).unref();
 setTimeout(autoUpdateTick, 30000).unref();
 setInterval(autoUpdateTick, 6 * 3600e3).unref();
 
@@ -425,7 +440,7 @@ const openFile = (file) => { if (file && fs.existsSync(file)) spawn('explorer.ex
 
 const handleWeb = createWeb({
   PUBLIC, WORK_DIR, info, startJob, cancelJob, pauseJob, resumeJob, jobs, ACTIVE, send, readBody, validUrl,
-  local: { data, pump, queuePos, runningCount, updateYtdlp, ytdlpVersion, revealFile, openFile, onExtractorBreak, isUpdating: () => ytdlpBusy },
+  local: { updater, data, pump, queuePos, runningCount, updateYtdlp, ytdlpVersion, revealFile, openFile, onExtractorBreak, isUpdating: () => ytdlpBusy },
 });
 
 const server = http.createServer(async (req, res) => {
@@ -452,7 +467,7 @@ const server = http.createServer(async (req, res) => {
   const u = new URL(req.url, `http://${host}`);
   try {
     // --- Site (statik sayfa + /api/*)
-    const needsTools = !/^\/api\/(settings|history|events)/.test(u.pathname);
+    const needsTools = !/^\/api\/(settings|history|events|update)/.test(u.pathname);
     if (u.pathname.startsWith('/api/') && needsTools && !toolsReady()) return send(res, 503, { error: 'Sunucuda yt-dlp / ffmpeg kurulu değil.' });
     if (await handleWeb(req, res, u)) return;
 

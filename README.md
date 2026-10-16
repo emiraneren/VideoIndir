@@ -11,6 +11,15 @@ YouTube, Instagram, Facebook, TikTok, X ve 1000'den fazla sitedeki videoyu isted
 
 Ayrıca bir şey kurman gerekmez. Uygulama kendi küçük penceresinde açılır (tarayıcı gerekmez). Sağ alttaki tepsi simgesi uygulamanın çalıştığını gösterir; kapatmak için simgeye sağ tık → **Çıkış**.
 
+Zip'in içinde yalnızca şunlar var (gerisi `dosyalar` klasöründe):
+
+| Dosya | Ne işe yarar |
+|---|---|
+| `VideoIndir.exe` | Uygulama |
+| `BENIOKU.txt` | Kısa kullanım ve eklenti anlatımı |
+| `Kur.bat` | İsteğe bağlı: kalıcı kurar, masaüstü ve Başlat menüsü kısayolu koyar, Windows *Uygulamalar* listesine ekler |
+| `Kaldir.bat` | Uygulamayı tamamen kaldırır (indirdiğin videolara dokunmaz) |
+
 ## Kullanım
 
 - **Yapıştır**'a bas (ya da bağlantıyı kutuya yapıştır), kaliteyi ya da **MP3**'ü seç. Dosya doğrudan indirme klasörüne kaydedilir; bitince **Klasörde göster** ve **Aç** düğmeleri çıkar, sağ altta bildirim gelir.
@@ -25,7 +34,7 @@ Ayrıca bir şey kurman gerekmez. Uygulama kendi küçük penceresinde açılır
 
 Pencereyi kapatırsan uygulama tepside çalışmaya devam eder. Kapalıyken eklenti ya da simge ile tekrar açılır.
 
-**Güncelleme:** Tepsi simgesine sağ tık → **Güncellemeleri denetle…** (ya da klasördeki `Guncelle.bat`). GitHub'daki son sürümü denetler; farklıysa küçük yamayı indirip uygular, uygulamayı kapatıp yeniden açar. İlk açılışta indirilen `yt-dlp`/`ffmpeg` korunur.
+**Güncelleme:** **Ayarlar → Güncellemeleri denetle** (ya da tepsi simgesine sağ tık → **Güncellemeleri denetle…**). GitHub'daki son sürüme bakar, **yeni gelenleri özetler**, istersen tek tıkla küçük yamayı indirip uygular ve uygulamayı yeniden açar. Yeni sürüm çıkınca ayrıca bildirim gelir (Ayarlar'dan kapatılabilir). İlk açılışta indirilen `yt-dlp`/`ffmpeg` korunur.
 
 ## Tarayıcı eklentisi (isteğe bağlı)
 
@@ -33,7 +42,7 @@ Eklenti, tarayıcıda videoyu izlerken simgeye tıklayıp indirmeni sağlar. **E
 
 1. Tarayıcında eklenti sayfasını aç: `chrome://extensions` (Opera: `opera://extensions`, Brave: `brave://extensions`, Edge: `edge://extensions`).
 2. Sağ üstten **Geliştirici modu**'nu aç.
-3. **Paketlenmemiş öğe yükle**'ye (Opera'da *Load unpacked*) tıkla ve paketteki `extension` klasörünü seç.
+3. **Paketlenmemiş öğe yükle**'ye (Opera'da *Load unpacked*) tıkla ve `dosyalarextension` klasörünü seç.
 4. Simgeyi araç çubuğuna sabitle.
 
 Kolay yol: exe'nin tepsi simgesine sağ tık → **Tarayıcı eklentisi** → tarayıcını seç. Sayfayı ve klasörü açar.
