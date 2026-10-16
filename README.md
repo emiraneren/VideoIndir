@@ -42,7 +42,7 @@ Eklenti, tarayıcıda videoyu izlerken simgeye tıklayıp indirmeni sağlar. **E
 
 1. Tarayıcında eklenti sayfasını aç: `chrome://extensions` (Opera: `opera://extensions`, Brave: `brave://extensions`, Edge: `edge://extensions`).
 2. Sağ üstten **Geliştirici modu**'nu aç.
-3. **Paketlenmemiş öğe yükle**'ye (Opera'da *Load unpacked*) tıkla ve `dosyalarextension` klasörünü seç.
+3. **Paketlenmemiş öğe yükle**'ye (Opera'da *Load unpacked*) tıkla ve `dosyalar\extension` klasörünü seç.
 4. Simgeyi araç çubuğuna sabitle.
 
 Kolay yol: exe'nin tepsi simgesine sağ tık → **Tarayıcı eklentisi** → tarayıcını seç. Sayfayı ve klasörü açar.
