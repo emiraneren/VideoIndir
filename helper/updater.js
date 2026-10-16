@@ -74,9 +74,11 @@ function apply() {
   const script = path.join(APP_ROOT, 'Guncelle.ps1');
   if (!fs.existsSync(script)) return { ok: false, error: 'Güncelleyici (Guncelle.ps1) bulunamadı. Yeni zip dosyasını GitHub\'dan indir.' };
   setTimeout(() => {
-    // detached kullanılmaz: konsolsuz ayrılmış süreçte PowerShell sessizce çıkıyor. Ana süreç öldürülünce de bu alt süreç yaşar.
-    spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', script, '-Yes', '-Quiet'],
-      { stdio: 'ignore', windowsHide: true }).unref();
+    // Güncelleyici bu servisi kapatacak. Node, doğrudan alt süreçleri ana süreçle birlikte öldürür (detached ise PowerShell'i
+    // başlatamıyor); bu yüzden onu bir "torun" süreç olarak başlatıyoruz: Start-Process ile açılan süreç ana süreçten bağımsız yaşar.
+    const q = (s) => s.replace(/'/g, "''");
+    const launcher = `Start-Process -FilePath powershell.exe -WindowStyle Hidden -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File','"${q(script)}"','-Yes','-Quiet')`;
+    spawn('powershell.exe', ['-NoProfile', '-WindowStyle', 'Hidden', '-Command', launcher], { stdio: 'ignore', windowsHide: true }).unref();
   }, 600);
   return { ok: true };
 }
