@@ -17,14 +17,15 @@ function Info($m) { if (-not $Quiet) { Write-Host $m } }
 function Good($m) { if (-not $Quiet) { Write-Host $m -ForegroundColor Green } }
 function Warn($m) { if (-not $Quiet) { Write-Host $m -ForegroundColor Yellow } }
 
-# Kurulum klasörü: bu script "dosyalar" klasöründeyse bir üst klasör (VideoIndir.exe orada), değilse script'in klasörü
+# Kurulum klasörü: bu script "app" klasöründeyse bir üst klasör (VideoIndir.exe orada), değilse script'in klasörü
 if (-not $Root) {
   $Root = $PSScriptRoot
-  if ((Split-Path $PSScriptRoot -Leaf) -eq 'dosyalar') { $Root = Split-Path $PSScriptRoot -Parent }
+  if (@('app', 'dosyalar') -contains (Split-Path $PSScriptRoot -Leaf)) { $Root = Split-Path $PSScriptRoot -Parent }
 }
-# Düzen: yeni pakette uygulama dosyaları "dosyalar" altında, eski (düz) kurulumlarda doğrudan kurulum klasöründe
-$nested = Test-Path (Join-Path $Root 'dosyalar\extension\manifest.json')
-$app = if ($nested) { Join-Path $Root 'dosyalar' } else { $Root }
+# Düzen: yeni pakette uygulama dosyaları "app" (v1.0.11'de "dosyalar") altında, eski (düz) kurulumlarda doğrudan kurulum klasöründe
+$appName = @('app', 'dosyalar') | Where-Object { Test-Path (Join-Path $Root "$_\extension\manifest.json") } | Select-Object -First 1
+$nested = [bool]$appName
+$app = if ($nested) { Join-Path $Root $appName } else { $Root }
 
 # Sürüm notundan "Yenilikler" maddelerini çıkarır
 function Get-Notes($body) {
@@ -112,7 +113,7 @@ try {
 
   Info 'Yama uygulanıyor...'
   if ($nested) {
-    # Yeni düzen: VideoIndir.exe kurulum klasörüne, geri kalan her şey "dosyalar" altına
+    # Yeni düzen: VideoIndir.exe kurulum klasörüne, geri kalan her şey "app" altına
     $tmp = Join-Path $env:TEMP ("videoindir-yama-$latest")
     Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
     Expand-Archive -LiteralPath $zip -DestinationPath $tmp -Force

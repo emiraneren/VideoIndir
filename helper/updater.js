@@ -44,7 +44,15 @@ function notesOf(body) {
   return items.slice(0, 12);
 }
 
-async function check() {
+let cache = null; // {at, result}: sayfa her açıldığında GitHub'ı yormamak için 10 dk önbellek
+async function check({ force = false } = {}) {
+  if (!force && cache && Date.now() - cache.at < 10 * 60e3 && cache.result.current === currentVersion()) return cache.result;
+  const result = await fetchCheck();
+  cache = { at: Date.now(), result };
+  return result;
+}
+
+async function fetchCheck() {
   const current = currentVersion();
   let res;
   try {
@@ -62,6 +70,9 @@ async function check() {
     available: newer.length > 0,
     latest: newer.length ? newer[0].tag_name.replace(/^v/i, '') : current,
     canPatch: newer.length > 0 && newer[0].assets.some((a) => /^VideoIndir-yama-.*\.zip$/.test(a.name)),
+    patchSize: newer.length ? ((newer[0].assets.find((a) => /^VideoIndir-yama-.*\.zip$/.test(a.name)) || {}).size || 0) : 0,
+    date: newer.length ? newer[0].published_at : null,
+    allUrl: `https://github.com/${REPO}/releases`,
     url: newer.length ? newer[0].html_url : `https://github.com/${REPO}/releases/latest`,
     dev: isDevFolder(),
     releases: newer.map((r) => ({ version: r.tag_name.replace(/^v/i, ''), notes: notesOf(r.body), url: r.html_url })),

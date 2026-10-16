@@ -11,9 +11,15 @@
 <body>
   <main>
     <header>
+      <button id="updateLink" type="button" class="update-link" hidden>Güncellemeleri denetle</button>
       <h1>VideoIndir</h1>
       <p>Bağlantıyı yapıştır, kaliteyi ya da MP3'ü seç, indir.</p>
     </header>
+
+    <div id="updateBanner" class="banner" hidden>
+      <span id="updateBannerText"></span>
+      <button id="updateBannerBtn" type="button" class="banner-btn">Neler değişti?</button>
+    </div>
 
     <!-- Sekmeler yalnızca yerel kullanımda görünür (geçmiş/ayarlar herkese açık sitede yok) -->
     <nav id="tabs" class="tabs" hidden aria-label="Bölümler">
@@ -116,7 +122,6 @@
         <div class="actions-row">
           <button id="appCheck" type="button" class="ghost small">Güncellemeleri denetle</button>
         </div>
-        <div id="updateResult" class="update-result" hidden></div>
         <label class="check"><input id="setCheckApp" type="checkbox"> Yeni sürüm çıkınca bildirimle haber ver</label>
       </div>
 
@@ -127,6 +132,23 @@
       <p>yt-dlp'nin desteklediği 1000'den fazla siteyle çalışır. Yalnızca indirme hakkına sahip olduğun içerikleri indir.</p>
     </footer>
   </main>
+  <!-- Güncelleme penceresi -->
+  <div id="updateModal" class="modal" hidden>
+    <div class="modal-card" role="dialog" aria-labelledby="updTitle">
+      <div class="modal-head"><h2 id="updTitle">VideoIndir Güncelleyici</h2></div>
+      <div class="modal-body">
+        <p id="updVersions" class="upd-versions"></p>
+        <div id="updNotes" class="upd-notes"></div>
+        <p id="updStatus" class="upd-status"></p>
+        <div class="modal-actions">
+          <button id="updRecheck" type="button" class="ghost">Yeniden denetle</button>
+          <button id="updClose" type="button" class="ghost">Kapat</button>
+          <button id="updApply" type="button" class="primary" hidden>Güncelle</button>
+        </div>
+        <a id="updAll" class="upd-all" target="_blank" rel="noopener" href="https://github.com/emiraneren/VideoIndir/releases">Tüm sürümler (GitHub)</a>
+      </div>
+    </div>
+  </div>
   <script src="/app.js"></script>
 </body>
 </html>

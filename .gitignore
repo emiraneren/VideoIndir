@@ -1,6 +1,7 @@
 # Derleme / paket çıktıları
 dist/
 VideoIndir.exe
+Kaldir.exe
 VideoIndir-firefox.xpi
 extension-firefox/
 launcher/VideoIndir.ico

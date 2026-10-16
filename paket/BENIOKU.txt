@@ -6,7 +6,7 @@ istediğin kalitede (MP4) ya da MP3 olarak indirir. Windows için.
 
 1) BAŞLAMAK
 -----------
- - Bu zip dosyasını bir klasöre çıkar (masaüstü olabilir).
+ - Bu zip dosyasını bir klasöre çıkar (masaüstü olabilir). Kurulum yok, klasör olduğu gibi çalışır.
  - VideoIndir.exe'ye çift tıkla. Hepsi bu.
  - İlk açılışta iki yardımcı araç (yt-dlp ve ffmpeg, ~180 MB) bir kez indirilir.
    İlerleme çubuğu görünür. Sonra uygulama penceresi açılır.
@@ -27,20 +27,18 @@ istediğin kalitede (MP4) ya da MP3 olarak indirir. Windows için.
  - İndirmeyi Duraklat ya da İptal edebilirsin.
 
 
-3) KALICI KURULUM (isteğe bağlı)
---------------------------------
- - Kur.bat     : Programı kalıcı bir yere kopyalar, Masaüstü ve Başlat menüsü
-                 kısayolu koyar. Sonra zip'ten çıkardığın klasörü silebilirsin.
- - Kaldir.bat  : Programı tamamen kaldırır (uninstall). İndirdiğin videolara
-                 dokunmaz. Windows Ayarlar > Uygulamalar listesinden de kaldırılabilir.
-
-
-4) GÜNCELLEME
+3) GÜNCELLEME
 -------------
- Uygulamada: Ayarlar sekmesi > "Güncellemeleri denetle".
- GitHub'daki son sürüme bakar, yeni neler geldiğini yazar, istersen tek tıkla
- günceller ve uygulamayı yeniden açar. Tepsi simgesine sağ tık >
- "Güncellemeleri denetle" de aynı yere gider. Yeni sürüm çıkınca ayrıca bildirim gelir.
+ Uygulamanın sağ üstündeki "Güncellemeleri denetle"ye bas (ya da tepsi simgesine
+ sağ tık > "Güncellemeleri denetle…"). GitHub'daki son sürüme bakar, yeni neler
+ geldiğini yazar, istersen tek tıkla günceller ve uygulamayı yeniden açar.
+ Yeni sürüm çıkınca ayrıca bildirim gelir.
+
+
+4) KALDIRMA
+-----------
+ Kaldir.exe'ye çift tıkla. Uygulamayı kapatır ve bu klasörü siler. İstersen ayar
+ ve geçmişi de siler. İndirdiğin videolara dokunmaz.
 
 
 5) TARAYICI EKLENTİSİ (isteğe bağlı)
@@ -56,8 +54,8 @@ istediğin kalitede (MP4) ya da MP3 olarak indirir. Windows için.
    3. "Paketlenmemiş öğe yükle"ye tıkla, açılan klasörü ("extension") seç.
    4. Simgeyi araç çubuğuna sabitle.
 
- Dikkat: Eklenti o klasörden çalışır. Kur.bat ile kurduysan eklentiyi KURULU
- klasörden yükle (tepsi menüsü doğru klasörü açar). Uygulamayı güncelledikten
+ Dikkat: Eklenti klasörden çalışır; VideoIndir klasörünü taşırsan ya da silersen
+ eklentiyi yeniden yükle (tepsi menüsü doğru klasörü açar). Uygulamayı güncelledikten
  sonra eklentiler sayfasındaki "yenile" düğmesine bas.
 
  Eklenti "uygulama kapalı" derse: eklentideki "Uygulamayı aç" düğmesine bas.

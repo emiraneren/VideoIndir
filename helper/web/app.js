@@ -438,13 +438,11 @@ function showView(name) {
 }
 document.querySelectorAll('#tabs .tab').forEach((t) => t.addEventListener('click', () => showView(t.dataset.view)));
 (async function detectLocal() {
-  try { await request('/api/settings'); $('tabs').hidden = false; } catch { return; }
+  try { await request('/api/settings'); $('tabs').hidden = false; $('updateLink').hidden = false; } catch { return; }
+  bannerCheck();
   // Tepsi menüsü doğrudan Ayarlar'ı (ve güncelleme denetimini) açabilir: ?view=settings&check=1
   const q = new URLSearchParams(location.search);
-  if (q.get('view') === 'settings') {
-    showView('settings');
-    if (q.get('check')) checkAppUpdate();
-  }
+  if (q.get('update')) openUpdateModal();
 })();
 
 const fmtDate = (ms) => {
@@ -520,53 +518,100 @@ $('setNotify').addEventListener('change', (e) => saveSettings({ notify: e.target
 $('setCheckApp').addEventListener('change', (e) => saveSettings({ checkAppUpdate: e.target.checked }));
 
 // --- VideoIndir'in kendi güncellemesi: GitHub'daki son sürümü denetle, yenilikleri özetle, istersen uygula ---
-async function checkAppUpdate() {
-  const box = $('updateResult'), btn = $('appCheck');
-  btn.disabled = true;
-  box.hidden = false;
-  box.className = 'update-result';
-  box.textContent = 'GitHub denetleniyor…';
-  try {
-    const r = await request('/api/update/check');
-    box.textContent = '';
-    const line = (text, cls) => { const p = document.createElement('p'); p.className = cls || ''; p.textContent = text; box.appendChild(p); return p; };
-    if (!r.available) { box.classList.add('ok'); line('Zaten güncelsin ✓ (sürüm ' + r.current + ')'); return; }
-    line('Yeni sürüm var: ' + r.latest + '  (şu an: ' + r.current + ')', 'uhead');
-    r.releases.forEach((rel) => {
-      const h = document.createElement('p');
-      h.className = 'uver';
-      h.textContent = 'Sürüm ' + rel.version + ' ile gelenler:';
-      box.appendChild(h);
-      const ul = document.createElement('ul');
-      (rel.notes.length ? rel.notes : ['Küçük düzeltmeler ve iyileştirmeler.']).forEach((n) => { const li = document.createElement('li'); li.textContent = n; ul.appendChild(li); });
-      box.appendChild(ul);
-    });
-    if (r.dev) { line('Bu bir geliştirme klasörü; kendini güncellemez.', 'muted'); return; }
-    if (!r.canPatch) {
-      const a = document.createElement('a'); a.href = r.url; a.target = '_blank'; a.rel = 'noopener'; a.textContent = 'Yeni sürümü GitHub üzerinden indir';
-      box.appendChild(a);
-      return;
-    }
-    const go = document.createElement('button');
-    go.type = 'button'; go.className = 'primary small'; go.textContent = 'Güncelle ve yeniden başlat';
-    go.addEventListener('click', () => applyAppUpdate(go, false));
-    box.appendChild(go);
-  } catch (e) { box.classList.add('error'); box.textContent = e.message; }
-  finally { btn.disabled = false; }
+const fmtDay = (iso) => (iso ? new Date(iso).toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' }) : '');
+let updInfo = null;
+
+function renderUpdate(r) {
+  updInfo = r;
+  $('updVersions').textContent = '';
+  const line = (label, value, bold) => {
+    const d = document.createElement('div');
+    if (bold) d.style.fontWeight = '600';
+    d.textContent = label + value;
+    $('updVersions').appendChild(d);
+  };
+  line('Kurulu sürüm: ', r.current, false);
+  line('En son sürüm: ', r.latest + (r.available && r.date ? '  (' + fmtDay(r.date) + ')' : ''), true);
+  const notes = $('updNotes');
+  notes.textContent = '';
+  const p = (text, cls) => { const e = document.createElement('p'); if (cls) e.className = cls; e.textContent = text; notes.appendChild(e); };
+  const status = $('updStatus');
+  status.className = 'upd-status';
+  $('updApply').hidden = true;
+  if (!r.available) {
+    p('VideoIndir zaten güncel. Yapılacak bir şey yok.');
+    status.textContent = 'Güncelsin ✓';
+    status.classList.add('ok');
+    return;
+  }
+  p('Kurulu sürümünden bu yana ' + r.releases.length + ' güncelleme yayınlandı. Neler değişti:');
+  r.releases.forEach((rel) => {
+    p('Sürüm ' + rel.version, 'uver');
+    const ul = document.createElement('ul');
+    (rel.notes.length ? rel.notes : ['Küçük düzeltmeler ve iyileştirmeler.']).forEach((n) => { const li = document.createElement('li'); li.textContent = n; ul.appendChild(li); });
+    notes.appendChild(ul);
+  });
+  if (r.dev) { status.textContent = 'Bu bir geliştirme klasörü; kendini güncellemez.'; return; }
+  if (!r.canPatch) { status.textContent = 'Bu sürümde otomatik yama yok. Aşağıdaki bağlantıdan yeni zip dosyasını indir.'; $('updAll').href = r.url; return; }
+  status.textContent = 'Yeni sürüm hazır' + (r.patchSize ? ' · indirme boyutu ' + Math.max(1, Math.round(r.patchSize / 1024)) + ' KB' : '');
+  $('updApply').hidden = false;
+  $('updApply').disabled = false;
 }
-async function applyAppUpdate(btn, force) {
+
+async function runUpdateCheck(force) {
+  $('updRecheck').disabled = true;
+  $('updStatus').className = 'upd-status';
+  $('updStatus').textContent = 'GitHub denetleniyor…';
+  try { renderUpdate(await request('/api/update/check' + (force ? '?force=1' : ''))); }
+  catch (e) { $('updStatus').className = 'upd-status error'; $('updStatus').textContent = e.message; }
+  finally { $('updRecheck').disabled = false; }
+}
+
+function openUpdateModal() {
+  $('updateModal').hidden = false;
+  $('updVersions').textContent = '';
+  $('updNotes').textContent = '';
+  runUpdateCheck(true);
+}
+const closeUpdateModal = () => { $('updateModal').hidden = true; };
+
+async function applyAppUpdate(force) {
+  const btn = $('updApply');
   btn.disabled = true;
   try {
     await request('/api/update/apply', { force });
-    btn.textContent = 'Güncelleniyor… uygulama birkaç saniye içinde kapanıp yeniden açılacak.';
+    $('updStatus').className = 'upd-status';
+    $('updStatus').textContent = 'Güncelleniyor… uygulama birkaç saniye içinde kapanıp yeniden açılacak.';
+    $('updRecheck').disabled = true;
   } catch (e) {
     btn.disabled = false;
-    if (e.status === 409 || /indirme sürüyor/.test(e.message)) {
-      if (confirm(e.message + ' Yine de güncellensin mi?')) applyAppUpdate(btn, true);
-    } else settingsMsg(e.message, true);
+    if (e.status === 409) {
+      if (confirm(e.message + ' Yine de güncellensin mi?')) applyAppUpdate(true);
+    } else { $('updStatus').className = 'upd-status error'; $('updStatus').textContent = e.message; }
   }
 }
-$('appCheck').addEventListener('click', checkAppUpdate);
+
+$('updateLink').addEventListener('click', openUpdateModal);
+$('appCheck').addEventListener('click', openUpdateModal);
+$('updRecheck').addEventListener('click', () => runUpdateCheck(true));
+$('updClose').addEventListener('click', closeUpdateModal);
+$('updApply').addEventListener('click', () => applyAppUpdate(false));
+$('updateModal').addEventListener('click', (e) => { if (e.target === $('updateModal')) closeUpdateModal(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('updateModal').hidden) closeUpdateModal(); });
+$('updateBannerBtn').addEventListener('click', openUpdateModal);
+
+// Sayfa açılınca sessizce denetle: yeni sürüm varsa üstte şerit göster (Ayarlar'dan kapatılabilir)
+async function bannerCheck() {
+  try {
+    const s = await request('/api/settings');
+    if (!s.checkAppUpdate) return;
+    const r = await request('/api/update/check');
+    if (r.available && !r.dev) {
+      $('updateBannerText').textContent = 'Yeni sürüm hazır: ' + r.latest + '.';
+      $('updateBanner').hidden = false;
+    }
+  } catch {}
+}
 
 $('setAutoUpdate').addEventListener('change', (e) => saveSettings({ autoUpdateYtdlp: e.target.checked }));
 $('ytdlpUpdate').addEventListener('click', async () => {

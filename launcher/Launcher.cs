@@ -179,7 +179,7 @@ namespace VideoIndir
                     bool upd = balloonUpdate;
                     balloonFile = null;
                     balloonUpdate = false;
-                    if (upd) OpenAppQuery("view=settings&check=1");
+                    if (upd) OpenAppQuery("update=1");
                     else if (f != null && File.Exists(f)) RevealInExplorer(f);
                 };
 
@@ -201,7 +201,8 @@ namespace VideoIndir
             string exeDir = Path.GetDirectoryName(Application.ExecutablePath);
             string[] candidates =
             {
-                Path.Combine(exeDir, @"dosyalar\helper"),   // paket düzeni: exe üstte, geri kalanı "dosyalar" altında
+                Path.Combine(exeDir, @"app\helper"),        // paket düzeni: exe üstte, geri kalanı "app" altında
+                Path.Combine(exeDir, @"dosyalar\helper"),   // v1.0.11 paket düzeni
                 Path.Combine(exeDir, "helper"),
                 Path.Combine(exeDir, @"VideoIndir\helper"),
                 Path.Combine(exeDir, @"Apps\VideoIndir\helper"),
@@ -408,7 +409,7 @@ namespace VideoIndir
             menu.Items.Add(new ToolStripSeparator());
 
             // Uygulama penceresinde Ayarlar'ı açar ve GitHub'daki son sürümü denetler; yenilikleri gösterir, istenirse günceller
-            menu.Items.Add("Güncellemeleri denetle…", null, delegate { OpenAppQuery("view=settings&check=1"); });
+            menu.Items.Add("Güncellemeleri denetle…", null, delegate { OpenAppQuery("update=1"); });
 
             ToolStripMenuItem install = new ToolStripMenuItem("Tarayıcı eklentisi (isteğe bağlı)");
             List<BrowserInfo> browsers = FindBrowsers();

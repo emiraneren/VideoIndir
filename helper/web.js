@@ -267,7 +267,7 @@ function createWeb({ PUBLIC, WORK_DIR, info, startJob, cancelJob, pauseJob, resu
         return true;
       }
       if (p === '/api/update/check' && req.method === 'GET') {
-        try { send(res, 200, await local.updater.check()); }
+        try { send(res, 200, await local.updater.check({ force: u.searchParams.get('force') === '1' })); }
         catch (e) { send(res, 502, { error: e.message }); }
         return true;
       }

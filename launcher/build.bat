@@ -13,3 +13,6 @@ copy /y lib\Microsoft.Web.WebView2.Core.dll .. >nul
 copy /y lib\Microsoft.Web.WebView2.WinForms.dll .. >nul
 copy /y lib\WebView2Loader.dll .. >nul
 echo Hazir: %~dp0..\VideoIndir.exe
+rem Kaldir.exe: ayri, kucuk kaldirici (WebView2 gerektirmez)
+"%CSC%" /nologo /target:winexe /platform:x64 /optimize+ /codepage:65001 /win32icon:VideoIndir.ico /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /out:..\Kaldir.exe Kaldir.cs || (pause & exit /b 1)
+echo Hazir: %~dp0..\Kaldir.exe

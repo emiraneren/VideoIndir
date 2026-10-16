@@ -1,5 +1,5 @@
 // Arkadaşlara verilecek sürüm paketini üretir: dist\VideoIndir-v<sürüm>.zip
-// Üst klasörde yalnızca: VideoIndir.exe, BENIOKU.txt, Kur.bat, Kaldir.bat. Gerisi dosyalar\ altında (yerleşik Node, servis kodu, eklenti, güncelleyici).
+// Üst klasörde yalnızca: VideoIndir.exe, Kaldir.exe, BENIOKU.txt. Gerisi app\ altında (yerleşik Node, servis kodu, eklenti, güncelleyici).
 // yt-dlp ve ffmpeg pakete konmaz; exe ilk açılışta resmi sürümlerini indirir.
 // Önce launcher\build.bat ile VideoIndir.exe derlenmiş olmalı.
 const fs = require('fs');
@@ -12,24 +12,21 @@ const dist = path.join(root, 'dist');
 const stage = path.join(dist, 'VideoIndir');
 const zip = path.join(dist, `VideoIndir-v${version}.zip`);
 
-if (!fs.existsSync(path.join(root, 'VideoIndir.exe'))) { console.error('VideoIndir.exe yok. Önce launcher\\build.bat çalıştır.'); process.exit(1); }
+if (!fs.existsSync(path.join(root, 'VideoIndir.exe')) || !fs.existsSync(path.join(root, 'Kaldir.exe'))) { console.error('VideoIndir.exe / Kaldir.exe yok. Önce launcher\\build.bat çalıştır.'); process.exit(1); }
 
 fs.rmSync(stage, { recursive: true, force: true });
 fs.rmSync(zip, { force: true });
-// Düzen: üst klasörde yalnızca kullanıcının dokunacağı 4 dosya; geri kalan her şey "dosyalar" altında
-const app = path.join(stage, 'dosyalar');
+// Düzen: üst klasörde yalnızca kullanıcının dokunacağı dosyalar; geri kalan her şey "app" altında
+const app = path.join(stage, 'app');
 fs.mkdirSync(path.join(app, 'helper'), { recursive: true });
 fs.mkdirSync(path.join(app, 'runtime'), { recursive: true });
 
 const copy = (from, to) => fs.cpSync(path.join(root, from), path.join(stage, to), { recursive: true });
-const into = (from, to) => copy(from, path.join('dosyalar', to));
+const into = (from, to) => copy(from, path.join('app', to));
 copy('VideoIndir.exe', 'VideoIndir.exe');
-for (const f of ['BENIOKU.txt', 'Kur.bat', 'Kaldir.bat']) copy(path.join('paket', f), f);
-for (const f of ['BENIOKU.txt', 'Kur.bat', 'Kaldir.bat']) { // Not Defteri / cmd için CRLF
-  const fp = path.join(stage, f);
-  fs.writeFileSync(fp, fs.readFileSync(fp, 'utf8').replace(/\r?\n/g, '\r\n'));
-}
-for (const f of ['Kur.ps1', 'Kaldir.ps1']) into(path.join('paket', f), f);
+copy('Kaldir.exe', 'Kaldir.exe');
+copy(path.join('paket', 'BENIOKU.txt'), 'BENIOKU.txt');
+{ const fp = path.join(stage, 'BENIOKU.txt'); fs.writeFileSync(fp, fs.readFileSync(fp, 'utf8').replace(/\r?\n/g, '\r\n')); } // Not Defteri için CRLF
 // WebView2 DLL'leri ve lisansı; güncelleyici
 for (const f of ['Microsoft.Web.WebView2.Core.dll', 'Microsoft.Web.WebView2.WinForms.dll', 'WebView2Loader.dll']) into(f, f);
 into(path.join('launcher', 'lib', 'WEBVIEW2-LICENSE.txt'), 'WEBVIEW2-LICENSE.txt');
